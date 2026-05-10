@@ -16,6 +16,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import Markdown from '@/components/Markdown';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -1237,7 +1238,13 @@ function WorkspaceStageContent({
                       }`}>
                         {entry.actor === 'student' ? 'You' : 'Claude'}
                       </div>
-                      <div className="whitespace-pre-wrap">{entry.content || (sendingMessage && entry.actor === 'ai' ? '...' : '')}</div>
+                      {entry.actor === 'ai' ? (
+                        <div className="socratic-chat-markdown">
+                          <Markdown value={entry.content || (sendingMessage ? '...' : '')} />
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{entry.content || (sendingMessage ? '...' : '')}</div>
+                      )}
                     </div>
                   </div>
                 ))

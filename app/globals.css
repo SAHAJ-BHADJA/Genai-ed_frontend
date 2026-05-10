@@ -270,3 +270,11 @@ html {
 .markdown-content th {
   @apply bg-gray-100 dark:bg-gray-800 font-semibold;
 }
+
+.socratic-chat-markdown .markdown-content {
+  @apply text-sm leading-relaxed text-gray-900 whitespace-pre-wrap;
+}
+
+.socratic-chat-markdown .markdown-content p:last-child {
+  @apply mb-0;
+}

@@ -156,11 +156,12 @@ export default function NewAssignmentPage() {
       Boolean(selectedCourseId)
       && (shouldResumeSocraticDraft || pendingResource?.courseId === selectedCourseId);
 
+    const savedDraft = canRestoreDraft && selectedCourseId ? loadStudioDraft(selectedCourseId) : null;
+
     if (selectedCourseId && !canRestoreDraft) {
       clearStudioDraft(selectedCourseId);
     }
 
-    const savedDraft = canRestoreDraft && selectedCourseId ? loadStudioDraft(selectedCourseId) : null;
     const nextBlueprint = savedDraft
       ? {
           ...savedDraft,
@@ -185,7 +186,28 @@ export default function NewAssignmentPage() {
       : seed;
 
     setStudioBlueprint(nextBlueprint);
-  }, [assignmentTitle, description, dueAt, pointsPossible, selectedCourse, selectedCourseId, shouldResumeSocraticDraft]);
+  }, [selectedCourse, selectedCourseId, shouldResumeSocraticDraft]);
+
+  useEffect(() => {
+    setStudioBlueprint((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        assignmentId: `draft-${selectedCourseId || 'course'}`,
+        courseId: selectedCourseId || 'course',
+        courseCode: selectedCourse?.course_number || 'COURSE',
+        courseTitle: selectedCourse?.title || 'Course',
+        assignmentTitle: assignmentTitle.trim() || 'Socratic Writing Assignment',
+        assignmentBrief:
+          description.trim() || 'Use Clarify, Research, Build, and Write to produce the final essay.',
+        dueAt:
+          fromDateTimeLocalValue(dueAt)
+          || current.dueAt
+          || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        pointsPossible: Number(pointsPossible) || 100,
+      };
+    });
+  }, [assignmentTitle, description, dueAt, pointsPossible, selectedCourse, selectedCourseId]);
 
   useEffect(() => {
     if (assignmentExperience !== 'socratic' || !selectedCourseId || !studioBlueprint) return;

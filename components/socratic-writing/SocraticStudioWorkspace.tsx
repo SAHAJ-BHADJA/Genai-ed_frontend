@@ -851,27 +851,6 @@ function WorkspaceStageContent({
         </div>
       </div>
 
-      {stageConversation.length === 0 && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex items-center gap-2 text-amber-900 font-semibold mb-3">
-            <Sparkles className="w-4 h-4" />
-            Starter prompts
-          </div>
-          <div className="space-y-3">
-            {stageConfig.starterQuestions.map((question, index) => (
-              <button
-                key={`${selectedStage}-starter-${index}`}
-                type="button"
-                onClick={() => setCoachDraft(question)}
-                className="w-full text-left rounded-xl border border-amber-200 bg-white px-4 py-3 text-amber-950 hover:border-amber-300 transition-colors"
-              >
-                {question}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {selectedStage === 'research' && (
         <div className={`grid gap-5 min-w-0 ${sourcesCollapsed ? 'lg:grid-cols-[minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
           {!sourcesCollapsed && (

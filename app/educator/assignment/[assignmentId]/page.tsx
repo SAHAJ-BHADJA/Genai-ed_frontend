@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   ArrowLeft,
   BookOpen,
   Calendar,
@@ -12,11 +13,13 @@ import {
   Pencil,
   Save,
   Send,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import EducatorLayout from '@/components/EducatorLayout';
+import { getBackendBase } from '@/lib/backend';
 import { uploadFile } from '@/lib/fileUpload';
 import {
   ASSIGNMENT_ALLOWED_FILE_TYPES,
@@ -96,6 +99,8 @@ export default function EducatorAssignmentDetailPage() {
   const [editLateUntil, setEditLateUntil] = useState('');
   const [newQuestionFile, setNewQuestionFile] = useState<File | null>(null);
   const [removeQuestionFile, setRemoveQuestionFile] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingAssignment, setDeletingAssignment] = useState(false);
 
   useEffect(() => {
     void bootstrap();
@@ -522,6 +527,55 @@ export default function EducatorAssignmentDetailPage() {
     }
   };
 
+  const handleDeleteAssignment = async () => {
+    if (!assignment) return;
+
+    setDeletingAssignment(true);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('Your session expired. Please sign in again.');
+      }
+
+      const backendBase = getBackendBase();
+      if (!backendBase) {
+        throw new Error('Backend base URL is not configured.');
+      }
+
+      const response = await fetch(`${backendBase}/api/assignments/${assignment.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const raw = await response.text();
+        let detail = raw;
+        try {
+          const parsed = JSON.parse(raw) as { detail?: string };
+          detail = parsed.detail || raw;
+        } catch {
+          // Keep raw response text when it is not JSON.
+        }
+        throw new Error(detail || 'Failed to delete assignment.');
+      }
+
+      toast.success('Assignment deleted completely.');
+      router.push(course ? `/educator/course/${course.id}` : '/educator/dashboard');
+    } catch (error) {
+      console.error('Error deleting assignment:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete assignment.');
+    } finally {
+      setDeletingAssignment(false);
+      setShowDeleteModal(false);
+    }
+  };
+
   if (loading || !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -599,6 +653,14 @@ export default function EducatorAssignmentDetailPage() {
                 {statusSaving === 'closed' ? 'Closing...' : 'Close Assignment'}
               </button>
             )}
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              disabled={savingEdits || deletingAssignment}
+              className="border border-red-300 text-red-700 font-semibold py-3 px-5 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              {deletingAssignment ? 'Deleting...' : 'Delete Assignment'}
+            </button>
           </div>
         </div>
 
@@ -1059,6 +1121,53 @@ export default function EducatorAssignmentDetailPage() {
           </div>
         </section>
       </div>
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-gray-200 p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-red-50 p-3">
+                <AlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-gray-900">Delete assignment?</h2>
+                <p className="text-sm text-gray-700">
+                  This will permanently delete the assignment, student submissions, attached question PDF,
+                  assignment-owned Socratic uploads, and related database records.
+                </p>
+                <p className="text-sm font-medium text-red-700">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 text-sm text-gray-700">
+              <p className="font-semibold text-gray-900">{assignment.assignment_label}</p>
+              <p>{assignment.assignment_title}</p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deletingAssignment}
+                className="border border-gray-300 text-gray-700 font-semibold py-3 px-5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteAssignment()}
+                disabled={deletingAssignment}
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-5 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deletingAssignment ? 'Deleting...' : 'Yes, Delete Assignment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </EducatorLayout>
   );
 }

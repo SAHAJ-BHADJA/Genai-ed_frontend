@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Mail, Lock, User, GraduationCap, BookOpen, AlertCircle, CheckCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { AlertCircle, BookOpen, Chrome, GraduationCap, X } from 'lucide-react';
+import { startGoogleSignIn } from '@/lib/googleAuth';
 
 interface SignupCardProps {
   role: 'educator' | 'student';
@@ -11,86 +11,17 @@ interface SignupCardProps {
 
 export default function SignupCard({ role }: SignupCardProps) {
   const router = useRouter();
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignup = async () => {
     setError('');
-    setSuccess('');
     setLoading(true);
 
-    console.log('Starting signup process...');
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
-      setLoading(false);
-      return;
-    }
-
     try {
-      console.log('Calling Supabase signUp...');
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/${role}/dashboard`,
-        }
-      });
-
-      console.log('SignUp response:', { authData, signUpError });
-
-      if (signUpError) {
-        console.error('SignUp error:', signUpError);
-        setError(signUpError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!authData.user) {
-        console.error('No user returned from signup');
-        setError('Signup failed. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      console.log('User created, creating profile...');
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          email: email,
-          first_name: firstName,
-          last_name: lastName,
-          role: role,
-        });
-
-      console.log('Profile creation result:', { profileError });
-
-      if (profileError) {
-        console.error('Profile error:', profileError);
-        setError('Failed to create profile. Please contact support.');
-        setLoading(false);
-        return;
-      }
-
-      if (authData.session) {
-        console.log('Session exists, redirecting to dashboard...');
-        router.push(`/${role}/dashboard`);
-      } else {
-        console.log('No session - email confirmation may be required');
-        setSuccess('Account created successfully! Please check your email to confirm your account before logging in.');
-        setLoading(false);
-      }
+      await startGoogleSignIn(role);
     } catch (err) {
-      console.error('Unexpected error:', err);
-      setError('An unexpected error occurred. Please try again.');
+      setError(err instanceof Error ? err.message : 'Google sign up failed. Please try again.');
       setLoading(false);
     }
   };
@@ -118,114 +49,37 @@ export default function SignupCard({ role }: SignupCardProps) {
               )}
               <div>
                 <h2 className="text-2xl font-bold">{title}</h2>
-                <p className="text-sm text-white/90">Create your account</p>
+                <p className="text-sm text-white/90">Create your account with Google</p>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-8">
-            <div className="space-y-6">
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
-              )}
-
-              {success && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-green-800">{success}</p>
-                </div>
-              )}
-
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                  First Name
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    id="firstName"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Enter your first name"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                    required
-                    disabled={loading}
-                  />
-                </div>
+          <div className="p-8 space-y-6">
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-800">{error}</p>
               </div>
+            )}
 
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Last Name
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    id="lastName"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Enter your last name"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="email"
-                    id="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="password"
-                    id="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Create a password (min 6 characters)"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                    required
-                    disabled={loading}
-                    minLength={6}
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-brand-yellow hover:bg-brand-yellow-hover text-black font-bold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-[#FFCC00]/50 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Creating account...' : 'Create Account'}
-              </button>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+              <p className="font-semibold text-gray-900">First-time access is code protected.</p>
+              <p className="mt-2">
+                Sign up with Google, enter the institution access code once, then use Google for future logins.
+              </p>
             </div>
 
-            <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={handleGoogleSignup}
+              disabled={loading}
+              className="w-full border border-gray-300 bg-white hover:bg-gray-50 text-gray-900 font-semibold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-gray-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Chrome className="w-5 h-5" />
+              {loading ? 'Opening Google...' : 'Sign up with Google'}
+            </button>
+
+            <div className="text-center">
               <p className="text-sm text-gray-600">
                 Already have an account?{' '}
                 <a
@@ -237,7 +91,7 @@ export default function SignupCard({ role }: SignupCardProps) {
               </p>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className="pt-6 border-t border-gray-200">
               <p className="text-xs text-center text-gray-500">
                 By continuing, you agree to GenAI&apos;s{' '}
                 <a href="#" className="text-brand-maroon hover:underline">
@@ -249,7 +103,7 @@ export default function SignupCard({ role }: SignupCardProps) {
                 </a>
               </p>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>

@@ -2,10 +2,11 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Mail, Lock, User, GraduationCap } from 'lucide-react';
+import { X, Mail, Lock, GraduationCap, Chrome } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { warmAllModels } from '@/lib/modelWarmup';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { startGoogleSignIn } from '@/lib/googleAuth';
 
 export default function EducatorLoginPage() {
   const router = useRouter();
@@ -16,11 +17,6 @@ export default function EducatorLoginPage() {
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-
-  const [signupFirstName, setSignupFirstName] = useState('');
-  const [signupLastName, setSignupLastName] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -51,7 +47,11 @@ export default function EducatorLoginPage() {
         }
 
         setLoadingMessage('Preparing AI models...');
-        await warmAllModels(true);
+        try {
+          await warmAllModels(true);
+        } catch (warmupError) {
+          console.warn('Model warmup failed during educator login; continuing anyway.', warmupError);
+        }
         router.push('/educator/dashboard');
       }
     } catch (err: any) {
@@ -61,39 +61,16 @@ export default function EducatorLoginPage() {
     }
   };
 
-  const handleSignup = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignIn = async () => {
     setError(null);
     setLoading(true);
-    setLoadingMessage('Creating account...');
+    setLoadingMessage('Opening Google...');
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: signupEmail,
-        password: signupPassword,
-      });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const { error: profileError } = await supabase.from('profiles').insert({
-          id: authData.user.id,
-          email: signupEmail,
-          first_name: signupFirstName,
-          last_name: signupLastName,
-          role: 'educator',
-        });
-
-        if (profileError) throw profileError;
-
-        setLoadingMessage('Preparing AI models...');
-        await warmAllModels(true);
-        router.push('/educator/dashboard');
-      }
+      await startGoogleSignIn('educator');
     } catch (err: any) {
-      setError(err.message || 'Failed to create account');
-    } finally {
       setLoading(false);
+      setError(err.message || 'Google sign in failed');
     }
   };
 
@@ -133,6 +110,25 @@ export default function EducatorLoginPage() {
                       {error}
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={loading}
+                    className="w-full border border-gray-300 bg-white hover:bg-gray-50 text-gray-900 font-semibold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-gray-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <Chrome className="w-5 h-5" />
+                    Continue with Google
+                  </button>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-200" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-white px-3 text-gray-500">Existing password account</span>
+                    </div>
+                  </div>
 
                   <div>
                     <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -192,97 +188,31 @@ export default function EducatorLoginPage() {
               </TabsContent>
 
               <TabsContent value="signup">
-                <form onSubmit={handleSignup} className="space-y-6">
+                <div className="space-y-6">
                   {error && (
                     <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
                       {error}
                     </div>
                   )}
 
-                  <div>
-                    <label htmlFor="signup-firstname" className="block text-sm font-medium text-gray-700 mb-2">
-                      First Name
-                    </label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="signup-firstname"
-                        value={signupFirstName}
-                        onChange={(e) => setSignupFirstName(e.target.value)}
-                        placeholder="Enter your first name"
-                        className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="signup-lastname" className="block text-sm font-medium text-gray-700 mb-2">
-                      Last Name
-                    </label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="signup-lastname"
-                        value={signupLastName}
-                        onChange={(e) => setSignupLastName(e.target.value)}
-                        placeholder="Enter your last name"
-                        className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="signup-email" className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input
-                        type="email"
-                        id="signup-email"
-                        value={signupEmail}
-                        onChange={(e) => setSignupEmail(e.target.value)}
-                        placeholder="Enter your email"
-                        className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="signup-password" className="block text-sm font-medium text-gray-700 mb-2">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input
-                        type="password"
-                        id="signup-password"
-                        value={signupPassword}
-                        onChange={(e) => setSignupPassword(e.target.value)}
-                        placeholder="Create a password"
-                        className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent outline-none transition-all bg-[#f3f3f5]"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    <p className="font-semibold text-gray-900">Educator signup uses Google.</p>
+                    <p className="mt-2">
+                      New educators enter the institution access code once after Google sign in.
+                      Existing approved emails keep their current educator data.
+                    </p>
                   </div>
 
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={handleGoogleSignIn}
                     disabled={loading}
-                    className="w-full bg-brand-yellow hover:bg-brand-yellow-hover text-black font-bold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-[#FFCC00]/50 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full border border-gray-300 bg-white hover:bg-gray-50 text-gray-900 font-semibold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-gray-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {loading ? loadingMessage : 'Continue'}
+                    <Chrome className="w-5 h-5" />
+                    {loading ? loadingMessage : 'Sign up with Google'}
                   </button>
-                </form>
+                </div>
               </TabsContent>
             </Tabs>
 

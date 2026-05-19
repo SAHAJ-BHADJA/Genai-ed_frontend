@@ -2,9 +2,10 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Mail, Lock, GraduationCap, BookOpen, AlertCircle } from 'lucide-react';
+import { X, Mail, Lock, GraduationCap, BookOpen, AlertCircle, Chrome } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { warmAllModels } from '@/lib/modelWarmup';
+import { startGoogleSignIn } from '@/lib/googleAuth';
 
 interface AuthCardProps {
   role: 'educator' | 'student';
@@ -90,6 +91,19 @@ export default function AuthCard({ role }: AuthCardProps) {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    setLoadingMessage('Opening Google...');
+
+    try {
+      await startGoogleSignIn(role);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google sign in failed. Please try again.');
+      setLoading(false);
+    }
+  };
+
   const title = role === 'educator' ? 'Educator Portal' : 'Student Portal';
 
   return (
@@ -126,6 +140,25 @@ export default function AuthCard({ role }: AuthCardProps) {
                   <p className="text-sm text-red-800">{error}</p>
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                className="w-full border border-gray-300 bg-white hover:bg-gray-50 text-gray-900 font-semibold py-3 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-gray-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Chrome className="w-5 h-5" />
+                Continue with Google
+              </button>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-3 text-gray-500">Existing password account</span>
+                </div>
+              </div>
 
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">

@@ -17,6 +17,10 @@ export type Profile = {
   first_name: string;
   last_name: string;
   role: 'educator' | 'student';
+  auth_provider?: string;
+  is_access_approved?: boolean;
+  access_code_verified_at?: string | null;
+  google_linked_at?: string | null;
   created_at: string;
   updated_at: string;
 };

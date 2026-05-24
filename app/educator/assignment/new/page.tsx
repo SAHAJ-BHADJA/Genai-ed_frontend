@@ -26,10 +26,12 @@ import {
   loadPendingSocraticCreatedResource,
   loadStudioDraft,
   saveStudioDraft,
+  SOCRATIC_STAGE_ORDER,
   SocraticResource,
+  SocraticStageKey,
   SocraticStudioBlueprint,
 } from '@/lib/socraticWriting';
-import { saveSocraticAssignmentConfig } from '@/lib/socraticWritingApi';
+import { generateSocraticStarterResponse, saveSocraticAssignmentConfig } from '@/lib/socraticWritingApi';
 
 type CourseRosterEntry = {
   course_student_id: string;
@@ -73,6 +75,23 @@ const toDateTimeLocalValue = (value: string | null) => {
 const fromDateTimeLocalValue = (value: string) => {
   if (!value) return null;
   return new Date(value).toISOString();
+};
+
+const mergeSocraticStageDefaults = (
+  draft: SocraticStudioBlueprint,
+  seed: SocraticStudioBlueprint,
+): SocraticStudioBlueprint['stages'] => {
+  return SOCRATIC_STAGE_ORDER.reduce((stages, stage) => {
+    stages[stage] = {
+      ...seed.stages[stage],
+      ...(draft.stages?.[stage] || {}),
+      systemPrompt: seed.stages[stage].systemPrompt,
+      starterQuestions: [],
+      customInstructions: draft.stages?.[stage]?.customInstructions || '',
+      starterResponse: draft.stages?.[stage]?.starterResponse || '',
+    };
+    return stages;
+  }, {} as SocraticStudioBlueprint['stages']);
 };
 
 export default function NewAssignmentPage() {
@@ -173,6 +192,7 @@ export default function NewAssignmentPage() {
           assignmentBrief: seed.assignmentBrief,
           dueAt: seed.dueAt,
           pointsPossible: seed.pointsPossible,
+          stages: mergeSocraticStageDefaults(savedDraft, seed),
           resources:
             (savedDraft.resources || []).length > 0
             && (savedDraft.resources || []).every(
@@ -517,6 +537,51 @@ export default function NewAssignmentPage() {
     });
   };
 
+  const buildCurrentSocraticBlueprint = (blueprint: SocraticStudioBlueprint) => ({
+    ...blueprint,
+    assignmentId: blueprint.assignmentId || `draft-${selectedCourseId || 'course'}`,
+    courseId: selectedCourseId || blueprint.courseId,
+    courseCode: selectedCourse?.course_number || blueprint.courseCode,
+    courseTitle: selectedCourse?.title || blueprint.courseTitle,
+    assignmentTitle: assignmentTitle.trim() || blueprint.assignmentTitle,
+    assignmentBrief: description.trim() || blueprint.assignmentBrief,
+    dueAt: fromDateTimeLocalValue(dueAt) || blueprint.dueAt,
+    pointsPossible: Number(pointsPossible) || blueprint.pointsPossible,
+  });
+
+  const handleGenerateSocraticStarterResponse = async (stage: SocraticStageKey) => {
+    if (!studioBlueprint) return;
+    if (!selectedCourseId) {
+      toast.error('Select a course before generating starter responses.');
+      return;
+    }
+    if (!assignmentTitle.trim()) {
+      toast.error('Add an assignment title before generating starter responses.');
+      return;
+    }
+    if (!description.trim() && !questionFile && studioBlueprint.resources.length === 0) {
+      toast.error('Add a description, question PDF, or research resource before generating starter responses.');
+      return;
+    }
+
+    const currentBlueprint = buildCurrentSocraticBlueprint(studioBlueprint);
+    const { response } = await generateSocraticStarterResponse(stage, currentBlueprint, questionFile);
+    setStudioBlueprint((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        stages: {
+          ...current.stages,
+          [stage]: {
+            ...current.stages[stage],
+            starterResponse: response,
+          },
+        },
+      };
+    });
+    toast.success(`${currentBlueprint.stages[stage].label} starter response generated.`);
+  };
+
   const navigateToCreateQuiz = () => {
     const returnTo = `/educator/assignment/new?courseId=${selectedCourseId}&mode=socratic&resumeSocraticDraft=1`;
     router.push(
@@ -590,6 +655,36 @@ export default function NewAssignmentPage() {
       return;
     }
 
+    if (assignmentExperience === 'socratic') {
+      if (!studioBlueprint) {
+        toast.error('Socratic Writing Studio is not ready yet.');
+        return;
+      }
+
+      if (status === 'published') {
+        if (!description.trim()) {
+          toast.error('Add assignment description/instructions before publishing a Socratic assignment.');
+          return;
+        }
+        if (!questionFile) {
+          toast.error('Upload the assignment question PDF before publishing a Socratic assignment.');
+          return;
+        }
+
+        const missingStarterStages = SOCRATIC_STAGE_ORDER.filter(
+          (stage) => !studioBlueprint.stages[stage].starterResponse?.trim(),
+        );
+        if (missingStarterStages.length > 0) {
+          toast.error(
+            `Generate starter responses before publishing: ${missingStarterStages
+              .map((stage) => studioBlueprint.stages[stage].label)
+              .join(', ')}.`,
+          );
+          return;
+        }
+      }
+    }
+
     setSavingStatus(status);
 
     let assignmentId: string | null = null;
@@ -660,15 +755,9 @@ export default function NewAssignmentPage() {
 
       if (assignmentExperience === 'socratic' && studioBlueprint) {
         await saveSocraticAssignmentConfig(assignmentId, {
-          ...studioBlueprint,
+          ...buildCurrentSocraticBlueprint(studioBlueprint),
           assignmentId,
           courseId: selectedCourseId,
-          courseCode: selectedCourse?.course_number || studioBlueprint.courseCode,
-          courseTitle: selectedCourse?.title || studioBlueprint.courseTitle,
-          assignmentTitle: assignmentTitle.trim(),
-          assignmentBrief: description.trim() || studioBlueprint.assignmentBrief,
-          dueAt: fromDateTimeLocalValue(dueAt) || studioBlueprint.dueAt,
-          pointsPossible: Number(pointsPossible) || studioBlueprint.pointsPossible,
         });
       }
 
@@ -778,7 +867,9 @@ export default function NewAssignmentPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">Question PDF <span className="text-gray-400">(Optional)</span></label>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Question PDF {assignmentExperience === 'socratic' ? <span className="text-brand-maroon">(Required for Socratic publish)</span> : <span className="text-gray-400">(Optional)</span>}
+                </label>
                 <label className="flex items-center justify-between gap-3 border border-gray-300 rounded-lg px-4 py-3 cursor-pointer hover:border-brand-maroon transition-colors">
                   <div className="flex items-center gap-3 min-w-0">
                     <Upload className="w-5 h-5 text-brand-maroon flex-shrink-0" />
@@ -875,6 +966,7 @@ export default function NewAssignmentPage() {
                   onUploadReading={handleUploadSocraticReading}
                   onCreateQuiz={navigateToCreateQuiz}
                   onCreateAvatarLecture={navigateToCreateAvatarLecture}
+                  onGenerateStarterResponse={handleGenerateSocraticStarterResponse}
                 />
               )}
           </section>

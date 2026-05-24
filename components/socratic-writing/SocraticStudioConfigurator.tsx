@@ -50,6 +50,7 @@ interface SocraticStudioConfiguratorProps {
   onUploadReading: (file: File) => Promise<void>;
   onCreateQuiz: () => void;
   onCreateAvatarLecture: () => void;
+  onGenerateStarterResponse: (stage: SocraticStageKey) => Promise<void>;
 }
 
 const stageIcons = {
@@ -74,9 +75,11 @@ export default function SocraticStudioConfigurator({
   onUploadReading,
   onCreateQuiz,
   onCreateAvatarLecture,
+  onGenerateStarterResponse,
 }: SocraticStudioConfiguratorProps) {
   const [activePicker, setActivePicker] = useState<'reading' | 'quiz' | 'avatar_lecture' | null>(null);
   const [uploadingReading, setUploadingReading] = useState(false);
+  const [generatingStage, setGeneratingStage] = useState<SocraticStageKey | null>(null);
 
   const updateStage = (stage: SocraticStageKey, patch: Partial<SocraticStudioBlueprint['stages'][SocraticStageKey]>) => {
     onChange({
@@ -88,19 +91,6 @@ export default function SocraticStudioConfigurator({
           ...patch,
         },
       },
-    });
-  };
-
-  const updateStarterQuestion = (stage: SocraticStageKey, index: number, value: string) => {
-    const nextQuestions = blueprint.stages[stage].starterQuestions.map((question, questionIndex) =>
-      questionIndex === index ? value : question,
-    );
-    updateStage(stage, { starterQuestions: nextQuestions });
-  };
-
-  const addStarterQuestion = (stage: SocraticStageKey) => {
-    updateStage(stage, {
-      starterQuestions: [...blueprint.stages[stage].starterQuestions, 'New starter question'],
     });
   };
 
@@ -206,6 +196,19 @@ export default function SocraticStudioConfigurator({
     }
   };
 
+  const handleGenerateStarterResponse = async (stage: SocraticStageKey) => {
+    try {
+      setGeneratingStage(stage);
+      await onGenerateStarterResponse(stage);
+    } finally {
+      setGeneratingStage(null);
+    }
+  };
+
+  const starterResponsesReady = SOCRATIC_STAGE_ORDER.filter(
+    (stage) => blueprint.stages[stage].starterResponse?.trim(),
+  ).length;
+
   return (
     <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
       <div className="flex items-start gap-3">
@@ -239,80 +242,6 @@ export default function SocraticStudioConfigurator({
           </label>
           <Input type="number" min={250} value={blueprint.wordCount} onChange={handleWordCountChange} />
         </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Stage Policies</h3>
-            <p className="text-sm text-gray-600">Per-stage AI policy and hidden stage prompt.</p>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-medium text-purple-700">
-            <Sparkles className="w-3.5 h-3.5" />
-            V1: Claude only
-          </div>
-        </div>
-
-        {SOCRATIC_STAGE_ORDER.map((stage) => {
-          const Icon = stageIcons[stage];
-          const stageConfig = blueprint.stages[stage];
-
-          return (
-            <div key={stage} className="rounded-2xl border border-gray-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="bg-brand-maroon/10 p-3 rounded-xl">
-                    <Icon className="w-5 h-5 text-brand-maroon" />
-                  </div>
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900">{stageConfig.label}</h4>
-                    <p className="text-sm text-gray-600">{stageConfig.summary}</p>
-                  </div>
-                </div>
-                <label className="inline-flex items-center gap-3 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700">
-                  AI Chat
-                  <Switch
-                    checked={stageConfig.aiAllowed}
-                    onCheckedChange={(checked) => updateStage(stage, { aiAllowed: checked })}
-                  />
-                </label>
-              </div>
-
-              <div className="grid xl:grid-cols-[1.2fr,1fr] gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Hidden System Prompt</label>
-                  <Textarea
-                    value={stageConfig.systemPrompt}
-                    onChange={(event) => updateStage(stage, { systemPrompt: event.target.value })}
-                    rows={8}
-                    className="resize-none"
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-gray-900">Starter Questions</label>
-                    <button
-                      type="button"
-                      onClick={() => addStarterQuestion(stage)}
-                      className="inline-flex items-center gap-2 text-sm font-medium text-brand-maroon hover:text-brand-maroon-hover"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Question
-                    </button>
-                  </div>
-                  {stageConfig.starterQuestions.map((question, index) => (
-                    <Input
-                      key={`${stage}-question-${index}`}
-                      value={question}
-                      onChange={(event) => updateStarterQuestion(stage, index, event.target.value)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
       </div>
 
       <div className="space-y-4">
@@ -545,6 +474,123 @@ export default function SocraticStudioConfigurator({
             ))
           )}
         </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Stage Policies & Starter Responses</h3>
+            <p className="text-sm text-gray-600">
+              Default prompts are locked. Add assignment-specific guidance, then generate the first Claude
+              message students will see in each stage.
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-medium text-purple-700">
+            <Sparkles className="w-3.5 h-3.5" />
+            {starterResponsesReady}/4 starter responses ready
+          </div>
+        </div>
+
+        {SOCRATIC_STAGE_ORDER.map((stage) => {
+          const Icon = stageIcons[stage];
+          const stageConfig = blueprint.stages[stage];
+          const hasStarterResponse = Boolean(stageConfig.starterResponse?.trim());
+          const isGenerating = generatingStage === stage;
+
+          return (
+            <div key={stage} className="rounded-2xl border border-gray-200 p-5 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="bg-brand-maroon/10 p-3 rounded-xl">
+                    <Icon className="w-5 h-5 text-brand-maroon" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-gray-900">{stageConfig.label}</h4>
+                    <p className="text-sm text-gray-600">{stageConfig.summary}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      hasStarterResponse
+                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        : 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    }`}
+                  >
+                    {hasStarterResponse ? 'Starter ready' : 'Starter required'}
+                  </span>
+                  <label className="inline-flex items-center gap-3 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700">
+                    AI Chat
+                    <Switch
+                      checked={stageConfig.aiAllowed}
+                      onCheckedChange={(checked) => updateStage(stage, { aiAllowed: checked })}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid xl:grid-cols-[1fr,1fr] gap-4">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Locked Default Hidden Prompt
+                    </label>
+                    <Textarea
+                      value={stageConfig.systemPrompt}
+                      readOnly
+                      rows={8}
+                      className="resize-none bg-gray-50 text-gray-700"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">
+                      This is the backend stage behavior. Educators can add guidance below without changing the base policy.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Assignment-Specific Instructions
+                    </label>
+                    <Textarea
+                      value={stageConfig.customInstructions || ''}
+                      onChange={(event) => updateStage(stage, { customInstructions: event.target.value })}
+                      rows={5}
+                      placeholder={`Optional guidance for ${stageConfig.label}. Example: gently connect website development to mobile app design where useful.`}
+                      className="resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="text-sm font-medium text-gray-900">Student Starter Response</label>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateStarterResponse(stage)}
+                      disabled={isGenerating}
+                      className="inline-flex items-center gap-2 rounded-lg border border-brand-maroon px-3 py-2 text-sm font-medium text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {isGenerating
+                        ? 'Generating...'
+                        : hasStarterResponse
+                          ? 'Regenerate'
+                          : 'Generate'}
+                    </button>
+                  </div>
+                  <Textarea
+                    rows={14}
+                    value={stageConfig.starterResponse || ''}
+                    onChange={(event) => updateStage(stage, { starterResponse: event.target.value })}
+                    placeholder={`Generate or write the first Claude message for ${stageConfig.label}. This exact message appears to students when they open the studio.`}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Publish is blocked until Clarify, Research, Build, and Write all have starter responses.
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

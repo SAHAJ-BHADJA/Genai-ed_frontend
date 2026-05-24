@@ -12,6 +12,8 @@ export interface SocraticStageConfig {
   description: string;
   aiAllowed: boolean;
   systemPrompt: string;
+  customInstructions: string;
+  starterResponse: string;
   starterQuestions: string[];
 }
 
@@ -137,90 +139,65 @@ const REGISTRY_KEY = `${STORAGE_PREFIX}:assignment-registry`;
 const BLUEPRINT_KEY_PREFIX = `${STORAGE_PREFIX}:blueprint:`;
 const CREATED_RESOURCE_KEY = `${STORAGE_PREFIX}:created-resource`;
 
-const GLOBAL_PROMPT = `You are an essay-writing coach for students. Your job is to develop the student's thinking, not to do their thinking for them.
-
-GLOBAL RULES
-- Never produce essay-ready prose.
-- Ask before you tell.
-- One move at a time.
-- Reflect their thinking back to them.
-- Decline paste-ready writing requests warmly and briefly.
-- Match the student's level.
-- Keep replies short.`;
-
 const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiAllowed'>> = {
   clarify: {
     key: 'clarify',
     label: 'Clarify',
     summary: 'Refine the question and define terms.',
     description: "Help me figure out what I'm actually arguing.",
-    systemPrompt: `${GLOBAL_PROMPT}
-
-STAGE: CLARIFY THE QUESTION
-- Help the student restate the prompt in their own words.
-- Probe ambiguous terms.
-- Identify the essay genre.
-- Surface hidden assumptions.
-- Do not suggest angles or theses yet.`,
-    starterQuestions: [
-      'What does your assignment prompt specifically ask you to do or explore?',
-      "What is one term in the prompt that feels vague or overloaded?",
-      'What would a strong response need to accomplish, not just mention?',
-    ],
+    systemPrompt: `STAGE: CLARIFY
+- Your first job is orientation.
+- If this is the beginning of the workspace, briefly explain what the assignment is asking the student to do, what the attached materials are for, and how they should begin.
+- Summarize the assignment and source pack in clear student-friendly language.
+- Define unclear terms, constraints, deliverables, and success criteria.
+- You may suggest a sensible first step or two.
+- Do not write the student's essay, but do help them understand the task directly.`,
+    customInstructions: '',
+    starterResponse: '',
+    starterQuestions: [],
   },
   research: {
     key: 'research',
     label: 'Research',
     summary: 'Explore sources and take useful notes.',
     description: 'Gather evidence, complete required resources, and capture what matters.',
-    systemPrompt: `${GLOBAL_PROMPT}
-
-STAGE: RESEARCH
-- Help the student search and read critically.
-- Ask what each source does for their thinking.
-- Encourage structured note taking.
-- Do not fabricate sources or citations.`,
-    starterQuestions: [
-      'Which source seems most useful right now, and why?',
-      'What pattern or tension are you starting to notice across the sources?',
-      'What evidence still feels missing for the claim you want to make?',
-    ],
+    systemPrompt: `STAGE: RESEARCH
+- Help the student understand the provided sources and what each one contributes.
+- Answer direct questions about the readings, quiz source material, quiz content, lecture scripts, and uploaded files.
+- Compare sources, surface tensions, and point out useful evidence.
+- Encourage note-worthy takeaways and missing evidence.
+- Do not fabricate sources, quotes, or citations.`,
+    customInstructions: '',
+    starterResponse: '',
+    starterQuestions: [],
   },
   build: {
     key: 'build',
     label: 'Build',
     summary: 'Construct and stress-test the argument.',
     description: 'Turn your research into a thesis, structure, and objections.',
-    systemPrompt: `${GLOBAL_PROMPT}
-
-STAGE: ARGUMENT BUILDING
-- Help the student form a claim and structure a case.
-- Stress-test vague claims.
-- Map evidence to argument moves.
-- Do not write the thesis for them.`,
-    starterQuestions: [
-      'What is the most interesting thing you now believe after doing the research?',
-      'What would the strongest objection to your current position be?',
-      'What are the 2 to 4 moves your argument has to make to hold together?',
-    ],
+    systemPrompt: `STAGE: BUILD
+- Help the student turn the assignment and research into an argument plan.
+- You may suggest possible directions, positions, structures, and objections, as long as you do not write final essay-ready prose.
+- Help them choose claims, organize evidence, and stress-test weak spots.
+- Be direct and practical when the student asks what they should write about.`,
+    customInstructions: '',
+    starterResponse: '',
+    starterQuestions: [],
   },
   write: {
     key: 'write',
     label: 'Write',
     summary: 'Draft and revise the essay.',
     description: 'Use your notes and argument map to compose and refine.',
-    systemPrompt: `${GLOBAL_PROMPT}
-
-STAGE: WRITE
-- React to what the student drafted.
-- Point out strengths, gaps, and drift.
-- Ask diagnostic revision questions.
-- Do not rewrite the essay for them.`,
-    starterQuestions: [
-      'Which paragraph feels strongest right now, and why?',
-      'Where does the draft drift from your thesis or lose clarity?',
-      'What claim still needs stronger evidence or a better transition?',
-    ],
+    systemPrompt: `STAGE: WRITE
+- Help the student improve their own draft.
+- You may critique clarity, structure, evidence use, and transitions.
+- You may suggest revisions at the level of strategy, bullet points, sentence goals, and what a paragraph needs to do.
+- Do not rewrite the whole paper or provide polished paste-ready essay prose.`,
+    customInstructions: '',
+    starterResponse: '',
+    starterQuestions: [],
   },
 };
 

@@ -46,12 +46,9 @@ export default function EducatorLoginPage() {
           throw new Error('This account is not registered as an educator');
         }
 
-        setLoadingMessage('Preparing AI models...');
-        try {
-          await warmAllModels(true);
-        } catch (warmupError) {
-          console.warn('Model warmup failed during educator login; continuing anyway.', warmupError);
-        }
+        void warmAllModels(true).catch((warmupError) => {
+          console.warn('Model warmup failed after educator login; continuing anyway.', warmupError);
+        });
         router.push('/educator/dashboard');
       }
     } catch (err: any) {

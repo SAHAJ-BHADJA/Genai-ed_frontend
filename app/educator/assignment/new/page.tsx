@@ -31,7 +31,11 @@ import {
   SocraticStageKey,
   SocraticStudioBlueprint,
 } from '@/lib/socraticWriting';
-import { generateSocraticStarterResponse, saveSocraticAssignmentConfig } from '@/lib/socraticWritingApi';
+import {
+  generateSocraticReadinessQuestions,
+  generateSocraticStarterResponse,
+  saveSocraticAssignmentConfig,
+} from '@/lib/socraticWritingApi';
 
 type CourseRosterEntry = {
   course_student_id: string;
@@ -88,6 +92,7 @@ const mergeSocraticStageDefaults = (
       systemPrompt: seed.stages[stage].systemPrompt,
       starterQuestions: [],
       customInstructions: draft.stages?.[stage]?.customInstructions || '',
+      readinessQuestions: draft.stages?.[stage]?.readinessQuestions || [],
       starterResponse: draft.stages?.[stage]?.starterResponse || '',
     };
     return stages;
@@ -549,6 +554,39 @@ export default function NewAssignmentPage() {
     pointsPossible: Number(pointsPossible) || blueprint.pointsPossible,
   });
 
+  const handleGenerateSocraticReadinessQuestions = async () => {
+    if (!studioBlueprint) return;
+    if (!selectedCourseId) {
+      toast.error('Select a course before generating readiness questions.');
+      return;
+    }
+    if (!assignmentTitle.trim()) {
+      toast.error('Add an assignment title before generating readiness questions.');
+      return;
+    }
+    if (!description.trim() && !questionFile && studioBlueprint.resources.length === 0) {
+      toast.error('Add a description, question PDF, or research resource before generating readiness questions.');
+      return;
+    }
+
+    const currentBlueprint = buildCurrentSocraticBlueprint(studioBlueprint);
+    const { stages } = await generateSocraticReadinessQuestions(currentBlueprint, questionFile);
+    setStudioBlueprint((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        stages: SOCRATIC_STAGE_ORDER.reduce((nextStages, stage) => {
+          nextStages[stage] = {
+            ...current.stages[stage],
+            readinessQuestions: stages[stage] || current.stages[stage].readinessQuestions || [],
+          };
+          return nextStages;
+        }, { ...current.stages }),
+      };
+    });
+    toast.success('Readiness questions generated for all Socratic stages.');
+  };
+
   const handleGenerateSocraticStarterResponse = async (stage: SocraticStageKey) => {
     if (!studioBlueprint) return;
     if (!selectedCourseId) {
@@ -561,6 +599,10 @@ export default function NewAssignmentPage() {
     }
     if (!description.trim() && !questionFile && studioBlueprint.resources.length === 0) {
       toast.error('Add a description, question PDF, or research resource before generating starter responses.');
+      return;
+    }
+    if (!(studioBlueprint.stages[stage].readinessQuestions || []).some((question) => question.trim())) {
+      toast.error(`Generate or add ${studioBlueprint.stages[stage].label} readiness questions first.`);
       return;
     }
 
@@ -668,6 +710,18 @@ export default function NewAssignmentPage() {
         }
         if (!questionFile) {
           toast.error('Upload the assignment question PDF before publishing a Socratic assignment.');
+          return;
+        }
+
+        const missingReadinessStages = SOCRATIC_STAGE_ORDER.filter(
+          (stage) => !(studioBlueprint.stages[stage].readinessQuestions || []).some((question) => question.trim()),
+        );
+        if (missingReadinessStages.length > 0) {
+          toast.error(
+            `Generate readiness questions before publishing: ${missingReadinessStages
+              .map((stage) => studioBlueprint.stages[stage].label)
+              .join(', ')}.`,
+          );
           return;
         }
 
@@ -966,6 +1020,7 @@ export default function NewAssignmentPage() {
                   onUploadReading={handleUploadSocraticReading}
                   onCreateQuiz={navigateToCreateQuiz}
                   onCreateAvatarLecture={navigateToCreateAvatarLecture}
+                  onGenerateReadinessQuestions={handleGenerateSocraticReadinessQuestions}
                   onGenerateStarterResponse={handleGenerateSocraticStarterResponse}
                 />
               )}

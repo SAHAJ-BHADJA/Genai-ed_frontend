@@ -13,6 +13,7 @@ export interface SocraticStageConfig {
   aiAllowed: boolean;
   systemPrompt: string;
   customInstructions: string;
+  readinessQuestions: string[];
   starterResponse: string;
   starterQuestions: string[];
 }
@@ -153,6 +154,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
 - You may suggest a sensible first step or two.
 - Do not write the student's essay, but do help them understand the task directly.`,
     customInstructions: '',
+    readinessQuestions: [],
     starterResponse: '',
     starterQuestions: [],
   },
@@ -168,6 +170,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
 - Encourage note-worthy takeaways and missing evidence.
 - Do not fabricate sources, quotes, or citations.`,
     customInstructions: '',
+    readinessQuestions: [],
     starterResponse: '',
     starterQuestions: [],
   },
@@ -182,6 +185,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
 - Help them choose claims, organize evidence, and stress-test weak spots.
 - Be direct and practical when the student asks what they should write about.`,
     customInstructions: '',
+    readinessQuestions: [],
     starterResponse: '',
     starterQuestions: [],
   },
@@ -196,6 +200,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
 - You may suggest revisions at the level of strategy, bullet points, sentence goals, and what a paragraph needs to do.
 - Do not rewrite the whole paper or provide polished paste-ready essay prose.`,
     customInstructions: '',
+    readinessQuestions: [],
     starterResponse: '',
     starterQuestions: [],
   },

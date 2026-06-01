@@ -181,6 +181,41 @@ export const generateSocraticStarterResponse = async (
   return (await response.json()) as { stage: SocraticStageKey; response: string };
 };
 
+export const generateSocraticReadinessQuestions = async (
+  blueprint: SocraticStudioBlueprint,
+  questionFile?: File | null,
+) => {
+  const token = await getAccessToken();
+  const base = requireBackendBase();
+  const formData = new FormData();
+  formData.append('blueprint', JSON.stringify(blueprint));
+  if (questionFile) {
+    formData.append('question_pdf', questionFile);
+  }
+
+  const response = await fetch(`${base}/api/socratic/assignment/readiness-questions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw) as { detail?: string };
+      detail = parsed.detail || raw;
+    } catch {
+      // Keep raw text when the body is not JSON.
+    }
+    throw new Error(detail || `Request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as { stages: Record<SocraticStageKey, string[]> };
+};
+
 export const fetchStudentSocraticWorkspace = async (assignmentId: string) =>
   apiRequest<SocraticWorkspacePayload>(`/api/socratic/student/assignment/${assignmentId}/workspace`);
 

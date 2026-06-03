@@ -23,6 +23,7 @@ import {
   clearStudioDraft,
   clearPendingSocraticCreatedResource,
   createDefaultStudioBlueprint,
+  DEFAULT_SOCRATIC_PROMPT_CONTROLS,
   loadPendingSocraticCreatedResource,
   loadStudioDraft,
   saveStudioDraft,
@@ -89,7 +90,8 @@ const mergeSocraticStageDefaults = (
     stages[stage] = {
       ...seed.stages[stage],
       ...(draft.stages?.[stage] || {}),
-      systemPrompt: seed.stages[stage].systemPrompt,
+      systemPrompt: draft.stages?.[stage]?.systemPrompt || seed.stages[stage].systemPrompt,
+      starterPrompt: draft.stages?.[stage]?.starterPrompt || seed.stages[stage].starterPrompt,
       starterQuestions: [],
       customInstructions: draft.stages?.[stage]?.customInstructions || '',
       readinessQuestions: draft.stages?.[stage]?.readinessQuestions || [],
@@ -98,6 +100,13 @@ const mergeSocraticStageDefaults = (
     return stages;
   }, {} as SocraticStudioBlueprint['stages']);
 };
+
+const mergeSocraticPromptControls = (
+  draft: SocraticStudioBlueprint,
+): SocraticStudioBlueprint['promptControls'] => ({
+  ...DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+  ...(draft.promptControls || {}),
+});
 
 export default function NewAssignmentPage() {
   const router = useRouter();
@@ -197,6 +206,7 @@ export default function NewAssignmentPage() {
           assignmentBrief: seed.assignmentBrief,
           dueAt: seed.dueAt,
           pointsPossible: seed.pointsPossible,
+          promptControls: mergeSocraticPromptControls(savedDraft),
           stages: mergeSocraticStageDefaults(savedDraft, seed),
           resources:
             (savedDraft.resources || []).length > 0

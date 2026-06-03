@@ -7,9 +7,11 @@ import {
   Brain,
   FileUp,
   FlaskConical,
+  Info,
   MessageSquareText,
   PencilLine,
   Plus,
+  RotateCcw,
   Sparkles,
   Trash2,
   Video,
@@ -18,6 +20,9 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
+  DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+  DEFAULT_STAGE_RUNTIME_PROMPTS,
+  DEFAULT_STAGE_STARTER_PROMPTS,
   SOCRATIC_STAGE_ORDER,
   SocraticResource,
   SocraticStudioBlueprint,
@@ -69,6 +74,32 @@ const resourceLabels = {
   source: 'Source',
 } satisfies Record<SocraticResource['type'], string>;
 
+const promptHelp = {
+  globalPrompt:
+    'Used in every Claude call for this assignment. Controls overall tone, boundaries, formatting, and how directly Claude helps students.',
+  chatResponseInstructions:
+    'Added to normal student chat turns after the student message. Use this to control answer style, length, formatting, and whether Claude must end with a question.',
+  readinessGenerationSystemPrompt:
+    'Used when the educator clicks Generate Readiness Questions. It tells Claude what kind of hidden goals to create for each stage.',
+  readinessGenerationUserPrompt:
+    'The exact task sent to Claude for readiness generation. Keep the JSON shape if you want the app to parse the response reliably.',
+  starterResponseInstructions:
+    'Added when generating the first visible Claude message for each stage. Use it to control formatting and how the opening message should sound.',
+  stageRuntimePrompt:
+    'Used during live student chat for this stage. This is the main behavior contract for what Claude should and should not do in the stage.',
+  stageStarterPrompt:
+    'Used only when generating the first visible Claude message for this stage. It does not run on every chat reply.',
+};
+
+const PromptHelp = ({ text }: { text: string }) => (
+  <span className="group relative inline-flex">
+    <Info className="h-4 w-4 cursor-help text-gray-400" />
+    <span className="pointer-events-none absolute left-1/2 top-6 z-30 hidden w-72 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-3 text-xs font-normal leading-relaxed text-gray-700 shadow-xl group-hover:block">
+      {text}
+    </span>
+  </span>
+);
+
 export default function SocraticStudioConfigurator({
   blueprint,
   availableResources,
@@ -88,6 +119,9 @@ export default function SocraticStudioConfigurator({
       SOCRATIC_STAGE_ORDER.reduce((signatures, stage) => {
         if (blueprint.stages[stage].starterResponse?.trim()) {
           signatures[stage] = JSON.stringify({
+            promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+            systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
+            starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
             customInstructions: blueprint.stages[stage].customInstructions || '',
             readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
           });
@@ -107,6 +141,23 @@ export default function SocraticStudioConfigurator({
         },
       },
     });
+  };
+
+  const updatePromptControls = (patch: Partial<SocraticStudioBlueprint['promptControls']>) => {
+    onChange({
+      ...blueprint,
+      promptControls: {
+        ...DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+        ...(blueprint.promptControls || {}),
+        ...patch,
+      },
+    });
+  };
+
+  const resetPromptControl = (key: keyof SocraticStudioBlueprint['promptControls']) => {
+    updatePromptControls({
+      [key]: DEFAULT_SOCRATIC_PROMPT_CONTROLS[key],
+    } as Partial<SocraticStudioBlueprint['promptControls']>);
   };
 
   const upsertResource = (resource: SocraticResource) => {
@@ -218,6 +269,9 @@ export default function SocraticStudioConfigurator({
       setStarterSourceSignatures((current) => ({
         ...current,
         [stage]: JSON.stringify({
+          promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+          systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
+          starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
           customInstructions: blueprint.stages[stage].customInstructions || '',
           readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
         }),
@@ -269,6 +323,9 @@ export default function SocraticStudioConfigurator({
 
   const getStageSignature = (stage: SocraticStageKey) =>
     JSON.stringify({
+      promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
+      systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
+      starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
       customInstructions: blueprint.stages[stage].customInstructions || '',
       readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
     });
@@ -307,6 +364,156 @@ export default function SocraticStudioConfigurator({
           <Input type="number" min={250} value={blueprint.wordCount} onChange={handleWordCountChange} />
         </div>
       </div>
+
+      <details className="rounded-2xl border border-amber-200 bg-amber-50/50">
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 p-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900">Advanced AI Prompt Controls</h3>
+              <PromptHelp text="These are the actual backend prompt layers for this assignment. Edit carefully. If Claude starts behaving strangely, reset the changed section to default." />
+            </div>
+            <p className="mt-1 text-sm text-gray-600">
+              Tune Claude behavior without code changes. These prompts apply only to this Socratic assignment.
+            </p>
+          </div>
+          <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
+            Advanced
+          </span>
+        </summary>
+
+        <div className="border-t border-amber-200 p-5">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                  Global Behavior Prompt
+                  <PromptHelp text={promptHelp.globalPrompt} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => resetPromptControl('globalPrompt')}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reset
+                </button>
+              </div>
+              <Textarea
+                rows={12}
+                value={blueprint.promptControls?.globalPrompt || DEFAULT_SOCRATIC_PROMPT_CONTROLS.globalPrompt}
+                onChange={(event) => updatePromptControls({ globalPrompt: event.target.value })}
+                className="resize-y text-xs leading-relaxed"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    Student Chat Response Rules
+                    <PromptHelp text={promptHelp.chatResponseInstructions} />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => resetPromptControl('chatResponseInstructions')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset
+                  </button>
+                </div>
+                <Textarea
+                  rows={5}
+                  value={
+                    blueprint.promptControls?.chatResponseInstructions
+                    || DEFAULT_SOCRATIC_PROMPT_CONTROLS.chatResponseInstructions
+                  }
+                  onChange={(event) => updatePromptControls({ chatResponseInstructions: event.target.value })}
+                  className="resize-y text-xs leading-relaxed"
+                />
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    Starter Message Generation Rules
+                    <PromptHelp text={promptHelp.starterResponseInstructions} />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => resetPromptControl('starterResponseInstructions')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset
+                  </button>
+                </div>
+                <Textarea
+                  rows={5}
+                  value={
+                    blueprint.promptControls?.starterResponseInstructions
+                    || DEFAULT_SOCRATIC_PROMPT_CONTROLS.starterResponseInstructions
+                  }
+                  onChange={(event) => updatePromptControls({ starterResponseInstructions: event.target.value })}
+                  className="resize-y text-xs leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                  Readiness Generator System Prompt
+                  <PromptHelp text={promptHelp.readinessGenerationSystemPrompt} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => resetPromptControl('readinessGenerationSystemPrompt')}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reset
+                </button>
+              </div>
+              <Textarea
+                rows={6}
+                value={
+                  blueprint.promptControls?.readinessGenerationSystemPrompt
+                  || DEFAULT_SOCRATIC_PROMPT_CONTROLS.readinessGenerationSystemPrompt
+                }
+                onChange={(event) => updatePromptControls({ readinessGenerationSystemPrompt: event.target.value })}
+                className="resize-y text-xs leading-relaxed"
+              />
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                  Readiness Generator Output Prompt
+                  <PromptHelp text={promptHelp.readinessGenerationUserPrompt} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => resetPromptControl('readinessGenerationUserPrompt')}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reset
+                </button>
+              </div>
+              <Textarea
+                rows={6}
+                value={
+                  blueprint.promptControls?.readinessGenerationUserPrompt
+                  || DEFAULT_SOCRATIC_PROMPT_CONTROLS.readinessGenerationUserPrompt
+                }
+                onChange={(event) => updatePromptControls({ readinessGenerationUserPrompt: event.target.value })}
+                className="resize-y text-xs leading-relaxed"
+              />
+            </div>
+          </div>
+        </div>
+      </details>
 
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
@@ -650,14 +857,55 @@ export default function SocraticStudioConfigurator({
                       />
                       <details className="mt-3 rounded-lg border border-gray-200 bg-gray-50">
                         <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
-                          View locked default stage behavior
+                          Edit actual {stageConfig.label} backend prompts
                         </summary>
-                        <Textarea
-                          value={stageConfig.systemPrompt}
-                          readOnly
-                          rows={7}
-                          className="mt-1 resize-none border-0 bg-gray-50 text-xs text-gray-600 focus-visible:ring-0"
-                        />
+                        <div className="space-y-4 border-t border-gray-200 p-3">
+                          <div>
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                                Stage Runtime Chat Prompt
+                                <PromptHelp text={promptHelp.stageRuntimePrompt} />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => updateStage(stage, { systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS[stage] })}
+                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Reset
+                              </button>
+                            </div>
+                            <Textarea
+                              value={stageConfig.systemPrompt}
+                              onChange={(event) => updateStage(stage, { systemPrompt: event.target.value })}
+                              rows={8}
+                              className="resize-y bg-white text-xs leading-relaxed"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                                Stage Starter Generation Prompt
+                                <PromptHelp text={promptHelp.stageStarterPrompt} />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => updateStage(stage, { starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS[stage] })}
+                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Reset
+                              </button>
+                            </div>
+                            <Textarea
+                              value={stageConfig.starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage]}
+                              onChange={(event) => updateStage(stage, { starterPrompt: event.target.value })}
+                              rows={8}
+                              className="resize-y bg-white text-xs leading-relaxed"
+                            />
+                          </div>
+                        </div>
                       </details>
                     </div>
 

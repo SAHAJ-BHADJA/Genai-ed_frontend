@@ -723,7 +723,7 @@ const createPreviewStarterEntry = (
     createdAt: nowIso(),
     entryType: 'chat_reply',
     metadata: {
-      model: 'claude-sonnet-4.5',
+      model: 'claude-opus-4.5',
       previewStarter: true,
       savedStarterResponse: hasSavedStarter,
       fallbackStarterResponse: !hasSavedStarter,

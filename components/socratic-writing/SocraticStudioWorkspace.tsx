@@ -390,7 +390,7 @@ export default function SocraticStudioWorkspace({
               content: '',
               createdAt: now,
               entryType: 'chat_reply',
-              metadata: { model: 'claude-sonnet-4.5' },
+              metadata: { model: 'claude-opus-4.5' },
             },
           ],
         };

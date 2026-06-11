@@ -142,7 +142,7 @@ type SingleJudgeStructured = {
 const AI_MODELS: AIModel[] = [
   { id: 'gpt-5.2-chat', name: 'OpenAI gpt-5.2-chat', provider: 'OpenAI', icon: '🤖', color: 'bg-green-500' },
   { id: 'gemini-2.5-flash', name: 'Google Gemini 2.5-flash', provider: 'Google', icon: '✨', color: 'bg-blue-500' },
-  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', provider: 'Anthropic', icon: '🧠', color: 'bg-purple-500' }
+  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', provider: 'Anthropic', icon: '🧠', color: 'bg-purple-500' }
 ];
 
 const BACKEND_BASE = getBackendBase();
@@ -394,7 +394,7 @@ export default function LLMPlayground() {
   const [multiJudgeRuns, setMultiJudgeRuns] = useState<MultiJudgeRun[]>([]);
 
   const [singleJudgePrimaryIds, setSingleJudgePrimaryIds] = useState<string[]>(AI_MODELS.map((m) => m.id));
-  const [singleJudgeEvaluatorId, setSingleJudgeEvaluatorId] = useState<string>('claude-sonnet-4.5');
+  const [singleJudgeEvaluatorId, setSingleJudgeEvaluatorId] = useState<string>('claude-opus-4.5');
   const [singleJudgeRuns, setSingleJudgeRuns] = useState<SingleJudgeRun[]>([]);
 
   const [input, setInput] = useState('');
@@ -2162,7 +2162,7 @@ export default function LLMPlayground() {
       <div className="h-[calc(100vh-80px)] flex flex-col">
         <div className="bg-brand-maroon text-white px-6 py-4 rounded-t-2xl">
           <h1 className="text-2xl font-bold">LLM Playground</h1>
-          <p className="text-sm text-white/90 mt-1">Chat with AI models - gpt-5.2-chat, Gemini 2.5-Flash, and Claude Sonnet 4.5</p>
+          <p className="text-sm text-white/90 mt-1">Chat with AI models - gpt-5.2-chat, Gemini 2.5-Flash, and Claude Opus 4.5</p>
         </div>
 
         <div className="px-6 py-4 bg-gray-50 border-b">

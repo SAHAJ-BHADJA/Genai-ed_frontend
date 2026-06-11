@@ -23,6 +23,8 @@ type CourseStudentRosterRow = {
   created_at: string;
 };
 
+const safeText = (value: unknown): string => (typeof value === 'string' ? value : '');
+
 export default function EditCourse() {
   const router = useRouter();
   const params = useParams();
@@ -98,11 +100,11 @@ export default function EditCourse() {
 
       if (courseData) {
         setCourse(courseData);
-        setSemester(courseData.semester);
-        setCourseNumber(courseData.course_number);
-        setSection(courseData.section);
-        setCourseTitle(courseData.title);
-        setInstructorName(courseData.instructor_name);
+        setSemester(safeText(courseData.semester) || 'Fall 2026');
+        setCourseNumber(safeText(courseData.course_number));
+        setSection(safeText(courseData.section));
+        setCourseTitle(safeText(courseData.title));
+        setInstructorName(safeText(courseData.instructor_name));
         setExistingSyllabusUrl(courseData.syllabus_url);
 
         const courseMats = courseData.course_materials_data || courseData.course_materials_urls || [];
@@ -366,11 +368,11 @@ export default function EditCourse() {
       }
 
       const payload = {
-        course_number: courseNumber.trim(),
-        title: courseTitle.trim(),
-        semester,
-        section: section.trim() || null,
-        instructor_name: instructorName.trim(),
+        course_number: safeText(courseNumber).trim(),
+        title: safeText(courseTitle).trim(),
+        semester: safeText(semester).trim() || 'Fall 2026',
+        section: safeText(section).trim() || null,
+        instructor_name: safeText(instructorName).trim(),
         syllabus_url: syllabusUrl || null,
         course_materials_data: courseMaterialsData,
         background_materials_data: backgroundMaterialsData,
@@ -388,9 +390,9 @@ export default function EditCourse() {
       }
 
       const studentPayload = students.map(student => ({
-        first_name: student.firstName.trim(),
-        last_name: student.lastName.trim(),
-        email: student.email.trim(),
+        first_name: safeText(student.firstName).trim(),
+        last_name: safeText(student.lastName).trim(),
+        email: safeText(student.email).trim(),
       }));
 
       const seenEmails = new Set<string>();

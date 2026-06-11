@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public.assignment_socratic_configs (
   assignment_id uuid PRIMARY KEY REFERENCES public.assignments(id) ON DELETE CASCADE,
   course_id uuid NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
   educator_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  model_id text NOT NULL DEFAULT 'claude-sonnet-4.5',
+  model_id text NOT NULL DEFAULT 'claude-opus-4.5',
   word_count integer NOT NULL DEFAULT 1500 CHECK (word_count > 0),
   clarify_ai_allowed boolean NOT NULL DEFAULT true,
   research_ai_allowed boolean NOT NULL DEFAULT true,

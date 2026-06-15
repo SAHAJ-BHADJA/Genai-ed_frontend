@@ -36,6 +36,8 @@ import {
   isAssignmentSystemMissingError,
 } from '@/lib/assignmentSystemErrors';
 import { supabase, Course, Profile } from '@/lib/supabase';
+import { fetchSocraticAssignmentConfig } from '@/lib/socraticWritingApi';
+import { SOCRATIC_STAGE_ORDER, SocraticStudioBlueprint } from '@/lib/socraticWriting';
 
 type CourseRosterEntry = {
   course_student_id: string;
@@ -53,6 +55,30 @@ type AssignmentTarget = {
   student_id: string | null;
   email: string;
   assigned_at: string;
+};
+
+type PromptReadOnlyBlockProps = {
+  title: string;
+  value?: string | string[] | null;
+  emptyLabel?: string;
+};
+
+const PromptReadOnlyBlock = ({
+  title,
+  value,
+  emptyLabel = 'Not configured.',
+}: PromptReadOnlyBlockProps) => {
+  const displayValue = Array.isArray(value) ? value.filter(Boolean).join('\n') : value;
+  const normalizedValue = typeof displayValue === 'string' ? displayValue.trim() : '';
+
+  return (
+    <div>
+      <p className="text-sm font-semibold text-gray-900 mb-2">{title}</p>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-800">
+        {normalizedValue || emptyLabel}
+      </pre>
+    </div>
+  );
 };
 
 const toDateTimeLocalValue = (value: string | null) => {
@@ -101,6 +127,9 @@ export default function EducatorAssignmentDetailPage() {
   const [removeQuestionFile, setRemoveQuestionFile] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingAssignment, setDeletingAssignment] = useState(false);
+  const [socraticBlueprint, setSocraticBlueprint] = useState<SocraticStudioBlueprint | null>(null);
+  const [socraticConfigLoading, setSocraticConfigLoading] = useState(false);
+  const [socraticConfigError, setSocraticConfigError] = useState<string | null>(null);
 
   useEffect(() => {
     void bootstrap();
@@ -232,6 +261,25 @@ export default function EducatorAssignmentDetailPage() {
 
     setAssignment(normalizedAssignment);
     resetEditState(normalizedAssignment);
+    setSocraticBlueprint(null);
+    setSocraticConfigError(null);
+
+    if (normalizedAssignment.experience_type === 'socratic_writing') {
+      setSocraticConfigLoading(true);
+      try {
+        const configPayload = await fetchSocraticAssignmentConfig(normalizedAssignment.id);
+        setSocraticBlueprint(configPayload.blueprint);
+      } catch (error) {
+        console.error('Error loading Socratic prompt config:', error);
+        setSocraticConfigError(
+          error instanceof Error ? error.message : 'Failed to load Socratic prompt configuration.',
+        );
+      } finally {
+        setSocraticConfigLoading(false);
+      }
+    } else {
+      setSocraticConfigLoading(false);
+    }
 
     const [{ data: courseRow }, { data: targetRows, error: targetError }, { data: rosterRows, error: rosterError }, { data: submissionRows, error: submissionError }] = await Promise.all([
       supabase
@@ -983,6 +1031,144 @@ export default function EducatorAssignmentDetailPage() {
             </div>
           </div>
         </section>
+
+        {assignment.experience_type === 'socratic_writing' && (
+          <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-50 p-3 rounded-xl">
+                  <BookOpen className="w-6 h-6 text-purple-700" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Socratic Prompt Configuration</h2>
+                  <p className="text-sm text-gray-600">
+                    View-only snapshot of the prompts saved for this assignment.
+                  </p>
+                </div>
+              </div>
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
+                Read only
+              </span>
+            </div>
+
+            {socraticConfigLoading && (
+              <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600">
+                Loading saved Socratic prompts...
+              </div>
+            )}
+
+            {socraticConfigError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {socraticConfigError}
+              </div>
+            )}
+
+            {!socraticConfigLoading && !socraticConfigError && socraticBlueprint && (
+              <>
+                {(() => {
+                  const promptControls = socraticBlueprint.promptControls || {};
+                  return (
+                    <>
+                <div className="grid md:grid-cols-2 gap-4 text-sm">
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <p className="text-gray-500 mb-1">Model</p>
+                    <p className="font-semibold text-gray-900">{socraticBlueprint.model}</p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <p className="text-gray-500 mb-1">Resources Attached</p>
+                    <p className="font-semibold text-gray-900">{socraticBlueprint.resources.length}</p>
+                  </div>
+                </div>
+
+                <details className="rounded-2xl border border-gray-200 bg-white p-4" open>
+                  <summary className="cursor-pointer text-base font-semibold text-gray-900">
+                    Assignment-Level Prompt Controls
+                  </summary>
+                  <div className="mt-4 grid lg:grid-cols-2 gap-4">
+                    <PromptReadOnlyBlock
+                      title="Global Runtime Prompt"
+                      value={promptControls.globalPrompt}
+                    />
+                    <PromptReadOnlyBlock
+                      title="Chat Response Instructions"
+                      value={promptControls.chatResponseInstructions}
+                    />
+                    <PromptReadOnlyBlock
+                      title="Readiness Generation System Prompt"
+                      value={promptControls.readinessGenerationSystemPrompt}
+                    />
+                    <PromptReadOnlyBlock
+                      title="Readiness Generation User Prompt"
+                      value={promptControls.readinessGenerationUserPrompt}
+                    />
+                    <div className="lg:col-span-2">
+                      <PromptReadOnlyBlock
+                        title="Starter Response Instructions"
+                        value={promptControls.starterResponseInstructions}
+                      />
+                    </div>
+                  </div>
+                </details>
+                    </>
+                  );
+                })()}
+
+                <div className="space-y-4">
+                  {SOCRATIC_STAGE_ORDER.map((stageKey) => {
+                    const stage = socraticBlueprint.stages[stageKey];
+                    if (!stage) return null;
+                    const readinessQuestions = Array.isArray(stage.readinessQuestions) ? stage.readinessQuestions : [];
+                    const starterQuestions = Array.isArray(stage.starterQuestions) ? stage.starterQuestions : [];
+
+                    return (
+                      <details key={stageKey} className="rounded-2xl border border-gray-200 bg-white p-4">
+                        <summary className="cursor-pointer">
+                          <span className="text-base font-semibold text-gray-900">{stage.label}</span>
+                          <span className="ml-3 text-sm text-gray-500">{stage.summary}</span>
+                        </summary>
+
+                        <div className="mt-4 space-y-4">
+                          <div className="grid md:grid-cols-3 gap-3 text-sm">
+                            <div className="rounded-xl bg-gray-50 p-3">
+                              <p className="text-gray-500 mb-1">AI Chat</p>
+                              <p className="font-semibold text-gray-900">{stage.aiAllowed ? 'Enabled' : 'Disabled'}</p>
+                            </div>
+                            <div className="rounded-xl bg-gray-50 p-3">
+                              <p className="text-gray-500 mb-1">Hidden Readiness Goals</p>
+                              <p className="font-semibold text-gray-900">{readinessQuestions.length}</p>
+                            </div>
+                            <div className="rounded-xl bg-gray-50 p-3">
+                              <p className="text-gray-500 mb-1">Starter Questions</p>
+                              <p className="font-semibold text-gray-900">{starterQuestions.length}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid lg:grid-cols-2 gap-4">
+                            <PromptReadOnlyBlock title="Stage Runtime Chat Prompt" value={stage.systemPrompt} />
+                            <PromptReadOnlyBlock title="Stage Starter Generation Prompt" value={stage.starterPrompt} />
+                            <PromptReadOnlyBlock title="Stage Readiness Question Generation Prompt" value={stage.readinessPrompt} />
+                            <PromptReadOnlyBlock title="Assignment-Specific Stage Instructions" value={stage.customInstructions} />
+                            <PromptReadOnlyBlock title="Hidden Readiness Goals" value={readinessQuestions} />
+                            <PromptReadOnlyBlock title="Starter Questions" value={starterQuestions} />
+                            <div className="lg:col-span-2">
+                              <PromptReadOnlyBlock title="Student Starter Response" value={stage.starterResponse} />
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {!socraticConfigLoading && !socraticConfigError && !socraticBlueprint && (
+              <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-600">
+                No Socratic prompt configuration was found for this assignment.
+              </div>
+            )}
+          </section>
+        )}
 
         <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
           <div className="flex items-center gap-3">

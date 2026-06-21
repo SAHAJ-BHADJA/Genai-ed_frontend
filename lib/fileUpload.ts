@@ -5,8 +5,12 @@ export const uploadCourseFile = async (
   fileType: 'syllabus' | 'materials' | 'background' | 'students',
   file: File
 ): Promise<string> => {
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+  const sanitizedOriginalName = file.name
+    .trim()
+    .replace(/[^\w.\-() ]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/^-+|-+$/g, '') || 'uploaded-file';
+  const fileName = `${Date.now()}-${sanitizedOriginalName}`;
   const filePath = `${courseId}/${fileType}/${fileName}`;
 
   const { error: uploadError } = await supabase.storage

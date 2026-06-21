@@ -24,6 +24,13 @@ type CourseStudentRosterRow = {
 };
 
 const safeText = (value: unknown): string => (typeof value === 'string' ? value : '');
+const fileDisplayName = (file: File) => file.name.replace(/\.[^.]+$/, '') || file.name;
+
+const materialMetadataFromUpload = (url: string, file: File | undefined) => ({
+  url,
+  displayName: file ? fileDisplayName(file) : url.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Material',
+  fileName: file?.name || url.split('/').pop() || 'file',
+});
 
 export default function EditCourse() {
   const router = useRouter();
@@ -350,21 +357,17 @@ export default function EditCourse() {
       if (courseMaterialsFiles.length > 0) {
         toast.info(`Uploading ${courseMaterialsFiles.length} course materials...`);
         const urls = await uploadMultipleFiles(courseId, 'materials', courseMaterialsFiles);
-        courseMaterialsData.push(...urls.map(url => ({
-          url,
-          displayName: url.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Material',
-          fileName: url.split('/').pop() || 'file'
-        })));
+        courseMaterialsData.push(...urls.map((url, index) =>
+          materialMetadataFromUpload(url, courseMaterialsFiles[index])
+        ));
       }
 
       if (backgroundMaterialsFiles.length > 0) {
         toast.info(`Uploading ${backgroundMaterialsFiles.length} background materials...`);
         const urls = await uploadMultipleFiles(courseId, 'background', backgroundMaterialsFiles);
-        backgroundMaterialsData.push(...urls.map(url => ({
-          url,
-          displayName: url.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Material',
-          fileName: url.split('/').pop() || 'file'
-        })));
+        backgroundMaterialsData.push(...urls.map((url, index) =>
+          materialMetadataFromUpload(url, backgroundMaterialsFiles[index])
+        ));
       }
 
       const payload = {

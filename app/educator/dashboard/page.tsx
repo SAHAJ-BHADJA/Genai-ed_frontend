@@ -274,13 +274,7 @@ export default function EducatorDashboard() {
                 <LectureCard
                   key={lecture.id}
                   title={lecture.title}
-                  onClick={() => {
-                    if (lecture.course_id) {
-                      router.push(`/educator/course/${lecture.course_id}/lecture/${lecture.id}`);
-                    } else {
-                      router.push(`/educator/lecture/${lecture.id}`);
-                    }
-                  }}
+                  onClick={() => router.push(`/educator/lecture/new?id=${lecture.id}&mode=edit`)}
                 />
               ))}
             </div>

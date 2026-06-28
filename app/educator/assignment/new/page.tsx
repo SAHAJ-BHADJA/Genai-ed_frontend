@@ -1,8 +1,8 @@
 'use client';
 
-import { ChangeEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, BookOpen, Brain, Calendar, Eye, FileText, Save, Send, Upload, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, Brain, Calendar, Eye, FileText, Save, Send, Upload, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import EducatorLayout from '@/components/EducatorLayout';
 import SocraticStudioConfigurator from '@/components/socratic-writing/SocraticStudioConfigurator';
@@ -132,6 +132,7 @@ export default function NewAssignmentPage() {
   const [availableReadings, setAvailableReadings] = useState<ExistingReadingOption[]>([]);
   const [availableQuizzes, setAvailableQuizzes] = useState<ExistingLinkedOption[]>([]);
   const [availableAvatarLectures, setAvailableAvatarLectures] = useState<ExistingLinkedOption[]>([]);
+  const questionFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [assignmentTitle, setAssignmentTitle] = useState('');
@@ -723,6 +724,13 @@ export default function NewAssignmentPage() {
     setQuestionFile(file);
   };
 
+  const handleRemoveQuestionFile = () => {
+    setQuestionFile(null);
+    if (questionFileInputRef.current) {
+      questionFileInputRef.current.value = '';
+    }
+  };
+
   const handleCreateAssignment = async (
     event: MouseEvent<HTMLButtonElement>,
     status: 'draft' | 'published',
@@ -766,10 +774,6 @@ export default function NewAssignmentPage() {
       if (status === 'published') {
         if (!description.trim()) {
           toast.error('Add assignment description/instructions before publishing a Socratic assignment.');
-          return;
-        }
-        if (!questionFile) {
-          toast.error('Upload the assignment question PDF before publishing a Socratic assignment.');
           return;
         }
 
@@ -982,9 +986,9 @@ export default function NewAssignmentPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-2">
-                  Question PDF {assignmentExperience === 'socratic' ? <span className="text-brand-maroon">(Required for Socratic publish)</span> : <span className="text-gray-400">(Optional)</span>}
+                  Question PDF <span className="text-gray-400">(Optional)</span>
                 </label>
-                <label className="flex items-center justify-between gap-3 border border-gray-300 rounded-lg px-4 py-3 cursor-pointer hover:border-brand-maroon transition-colors">
+                <div className="flex items-center justify-between gap-3 border border-gray-300 rounded-lg px-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <Upload className="w-5 h-5 text-brand-maroon flex-shrink-0" />
                     <div className="min-w-0">
@@ -996,13 +1000,33 @@ export default function NewAssignmentPage() {
                       </p>
                     </div>
                   </div>
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    className="hidden"
-                    onChange={handleQuestionFileChange}
-                  />
-                </label>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {questionFile ? (
+                      <button
+                        type="button"
+                        onClick={handleRemoveQuestionFile}
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:border-brand-maroon hover:text-brand-maroon"
+                      >
+                        <X className="h-4 w-4" />
+                        Remove
+                      </button>
+                    ) : null}
+                    <label className="cursor-pointer rounded-lg bg-brand-maroon px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-brand-maroon/90">
+                      {questionFile ? 'Replace' : 'Upload'}
+                      <input
+                        ref={questionFileInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={handleQuestionFileChange}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Socratic assignments can be published without a question PDF if the description or
+                  research resources already explain the task.
+                </p>
               </div>
             </div>
 

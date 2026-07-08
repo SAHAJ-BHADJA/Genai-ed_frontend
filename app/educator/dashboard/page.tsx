@@ -6,13 +6,47 @@ import { supabase, Profile, Course, Lecture } from '@/lib/supabase';
 import EducatorLayout from '@/components/EducatorLayout';
 import CourseCard from '@/components/CourseCard';
 import LectureCard from '@/components/LectureCard';
-import { ClipboardCheck, FileText, GraduationCap, Plus, Bot, PencilLine } from 'lucide-react';
+import { ClipboardCheck, FileText, GraduationCap, Plus, Bot, PencilLine, CircleHelp, X } from 'lucide-react';
 
 type DashboardLecture = Lecture & {
   lecture_courses: Array<{
     course_id: string;
   }>;
 };
+
+type Tutorial = {
+  title: string;
+  description: string;
+  url: string;
+};
+
+const tutorials = {
+  courses: {
+    title: 'My Courses Tutorial',
+    description: 'Learn how to create your first course in Cogitatis AI.',
+    url: 'https://scribehow.com/embed/Tutorial_Create_Your_First_Course__GHgpOyNqQm6pmwcDuLCutg',
+  },
+  multiModel: {
+    title: 'Multi-Model Playground Tutorial',
+    description: 'Learn how to compare and orchestrate model responses.',
+    url: 'https://scribehow.com/embed/Tutorial_Mastering_the_Cogitatis_AI_Multi-Model_Playground__CTLgID8RRquUjC4WAQYjMQ',
+  },
+  socratic: {
+    title: 'Socratic Writing Tutorial',
+    description: 'Learn how to create Socratic Writing assignments.',
+    url: 'https://scribehow.com/embed/Tutorial_How_to_Create_a_Socratic_Writing_Assignments_in_Cogitatis__XJtpmy-1RLeF0yNvTOmatA',
+  },
+  avatar: {
+    title: 'Avatar Lecture Studio Tutorial',
+    description: 'Learn how to create an AI lecture with Avatar Lecture Studio.',
+    url: 'https://scribehow.com/embed/Tutorial_Create_an_AI_Lecture_with_Avatar_Lecture_Studio__MYiq-ymzRpSL3xvBI5WY5g',
+  },
+  quiz: {
+    title: 'Personalized Quiz Generator Tutorial',
+    description: 'Learn how to create and publish a personalized quiz.',
+    url: 'https://scribehow.com/embed/Tutorial_Create_and_Publish_a_Personalized_Quiz__450_C3UkSO6qygOQVxuVtQ',
+  },
+} satisfies Record<string, Tutorial>;
 
 export default function EducatorDashboard() {
   const router = useRouter();
@@ -21,6 +55,7 @@ export default function EducatorDashboard() {
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
+  const [activeTutorial, setActiveTutorial] = useState<Tutorial | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -106,6 +141,54 @@ export default function EducatorDashboard() {
     await checkAuth();
   };
 
+  const openTutorial = (event: React.MouseEvent, tutorial: Tutorial) => {
+    event.stopPropagation();
+    setActiveTutorial(tutorial);
+  };
+
+  const featureCards = [
+    {
+      title: 'Multi-Model Playground',
+      description: 'Compare model responses and orchestrate stronger AI outputs.',
+      path: '/educator/llm-playground',
+      icon: Bot,
+      iconClassName: 'bg-purple-600',
+      tutorial: tutorials.multiModel,
+    },
+    {
+      title: 'Socratic Writing Studio',
+      description: 'Create staged writing assignments with guided Claude support.',
+      path: '/educator/socratic-writing',
+      icon: PencilLine,
+      iconClassName: 'bg-amber-500',
+      tutorial: tutorials.socratic,
+    },
+    {
+      title: 'Avatar Lecture Studio',
+      description: 'Generate avatar lectures, voice narration, and course slides.',
+      path: '/educator/lecture/new',
+      icon: FileText,
+      iconClassName: 'bg-brand-maroon',
+      tutorial: tutorials.avatar,
+    },
+    {
+      title: 'Personalized Quiz Generator',
+      description: 'Create adaptive quizzes from materials or student writing.',
+      path: '/educator/quiz/new',
+      icon: GraduationCap,
+      iconClassName: 'bg-green-600',
+      tutorial: tutorials.quiz,
+    },
+    {
+      title: 'AI Policy Builder',
+      description: 'Design AI usage policies aligned with course objectives.',
+      path: '/educator/policy-suggestor',
+      icon: ClipboardCheck,
+      iconClassName: 'bg-blue-500',
+      comingSoon: true,
+    },
+  ];
+
   return (
     <EducatorLayout profile={profile}>
       <div className="space-y-8">
@@ -134,85 +217,65 @@ export default function EducatorDashboard() {
         <div>
           <h2 className="text-xl font-semibold text-gray-800 mb-4">What would you like to do today?</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-            <button
-              onClick={() => router.push('/educator/llm-playground')}
-              className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border border-gray-100 text-left group"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="bg-purple-600 p-3 rounded-xl">
-                  <Bot className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-gray-400 group-hover:text-gray-600 transition-colors">-&gt;</div>
-              </div>
-              <h3 className="font-semibold text-lg text-gray-900 mb-2">Multi-Model Playground</h3>
-              <p className="text-gray-600 text-sm">Compare model responses and orchestrate stronger AI outputs.</p>
-            </button>
+            {featureCards.map((card) => {
+              const Icon = card.icon;
 
-            <button
-              onClick={() => router.push('/educator/socratic-writing')}
-              className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border border-gray-100 text-left group"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="bg-amber-500 p-3 rounded-xl">
-                  <PencilLine className="w-6 h-6 text-white" />
+              return (
+                <div
+                  key={card.title}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(card.path)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      router.push(card.path);
+                    }
+                  }}
+                  className="group cursor-pointer rounded-xl border border-gray-100 bg-white p-6 text-left shadow-md transition-all hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-brand-maroon"
+                >
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className={`${card.iconClassName} rounded-xl p-3`}>
+                      <Icon className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {card.tutorial && (
+                        <button
+                          type="button"
+                          onClick={(event) => openTutorial(event, card.tutorial)}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          className="inline-flex items-center gap-1 rounded-full border border-brand-maroon/20 bg-red-50 px-2.5 py-1 text-xs font-semibold text-brand-maroon transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-brand-maroon"
+                        >
+                          <CircleHelp className="h-3.5 w-3.5" />
+                          Tutorial
+                        </button>
+                      )}
+                      <div className="flex items-center gap-2 text-sm text-gray-400 transition-colors group-hover:text-gray-600">
+                        {card.comingSoon && <span>Coming Soon</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <h3 className="mb-2 text-lg font-semibold text-gray-900">{card.title}</h3>
+                  <p className="text-sm text-gray-600">{card.description}</p>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-400 group-hover:text-gray-600 transition-colors">-&gt;</div>
-              </div>
-              <h3 className="font-semibold text-lg text-gray-900 mb-2">Socratic Writing Studio</h3>
-              <p className="text-gray-600 text-sm">Create staged writing assignments with guided Claude support.</p>
-            </button>
-            
-            <button
-              onClick={() => router.push('/educator/lecture/new')}
-              className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border border-gray-100 text-left group"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="bg-brand-maroon p-3 rounded-xl">
-                  <FileText className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-gray-400 group-hover:text-gray-600 transition-colors">-&gt;</div>
-              </div>
-              <h3 className="font-semibold text-lg text-gray-900 mb-2">Avatar Lecture Studio</h3>
-              <p className="text-gray-600 text-sm">Generate avatar lectures, voice narration, and course slides.</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/educator/quiz/new')}
-              className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border border-gray-100 text-left group"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="bg-green-600 p-3 rounded-xl">
-                  <GraduationCap className="w-6 h-6 text-white" />
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-400 group-hover:text-gray-600 transition-colors">-&gt;</div>
-              </div>
-              <h3 className="font-semibold text-lg text-gray-900 mb-2">Personalized Quiz Generator</h3>
-              <p className="text-gray-600 text-sm">Create adaptive quizzes from materials or student writing.</p>
-            </button>
-
-            <button
-              onClick={() => router.push('/educator/policy-suggestor')}
-              className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border border-gray-100 text-left group"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="bg-blue-500 p-3 rounded-xl">
-                  <ClipboardCheck className="w-6 h-6 text-white" />
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-400 group-hover:text-gray-600 transition-colors">
-                  <span>Coming Soon</span>
-                  <span>-&gt;</span>
-                </div>
-              </div>
-              <h3 className="font-semibold text-lg text-gray-900 mb-2">AI Policy Builder</h3>
-              <p className="text-gray-600 text-sm">Design AI usage policies aligned with course objectives.</p>
-            </button>
-
+              );
+            })}
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-800">My Courses</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-semibold text-gray-800">My Courses</h2>
+              <button
+                type="button"
+                onClick={(event) => openTutorial(event, tutorials.courses)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-brand-maroon/20 bg-red-50 px-3 py-1.5 text-xs font-semibold text-brand-maroon transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-brand-maroon"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+                Tutorial
+              </button>
+            </div>
             <button
               onClick={() => router.push('/educator/courses')}
               className="text-brand-maroon hover:text-brand-maroon-hover font-medium text-sm flex items-center gap-2"
@@ -295,6 +358,43 @@ export default function EducatorDashboard() {
           )}
         </div>
       </div>
+
+      {activeTutorial && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-black/60 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="educator-tutorial-title"
+        >
+          <div className="relative flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 id="educator-tutorial-title" className="text-lg font-bold text-gray-900">
+                  {activeTutorial.title}
+                </h3>
+                <p className="text-sm text-gray-600">{activeTutorial.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTutorial(null)}
+                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-maroon"
+                aria-label="Close tutorial"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden bg-gray-50 p-3 sm:p-5">
+              <iframe
+                src={activeTutorial.url}
+                title={activeTutorial.title}
+                allow="fullscreen"
+                className="h-full w-full rounded-xl border-0 bg-white"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </EducatorLayout>
   );
 }

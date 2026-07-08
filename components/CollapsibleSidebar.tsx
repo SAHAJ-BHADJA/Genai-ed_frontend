@@ -10,6 +10,7 @@ export interface NavItem {
   label: string;
   path: string;
   badge?: number;
+  comingSoon?: boolean;
 }
 
 export interface AddButtonItem {
@@ -133,6 +134,7 @@ export default function CollapsibleSidebar({
                   const navItem = item as NavItem;
                   const Icon = navItem.icon;
                   const isActive = pathname === navItem.path;
+                  const isComingSoon = navItem.comingSoon;
 
                   return (
                     <div key={navItem.path} className="relative group">
@@ -142,16 +144,27 @@ export default function CollapsibleSidebar({
                           'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 transform',
                           isActive
                             ? 'bg-gradient-to-r from-brand-maroon to-red-800 text-white shadow-md scale-[1.02]'
+                            : isComingSoon
+                              ? 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 hover:shadow-sm active:scale-[0.98]'
                             : 'text-gray-700 hover:bg-gray-50 hover:shadow-sm active:scale-[0.98]',
                           !isExpanded && 'justify-center'
                         )}
                       >
-                        <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'drop-shadow-sm')} />
+                        <Icon className={cn(
+                          'w-5 h-5 flex-shrink-0',
+                          isActive && 'drop-shadow-sm',
+                          isComingSoon && !isActive && 'text-amber-700'
+                        )} />
                         {isExpanded && (
                           <>
                             <span className="font-medium text-sm truncate flex-1 text-left">
                               {navItem.label}
                             </span>
+                            {isComingSoon && !isActive && (
+                              <span className="ml-auto px-2 py-0.5 bg-amber-200 text-amber-900 text-[10px] font-bold rounded-full flex-shrink-0">
+                                Soon
+                              </span>
+                            )}
                             {navItem.badge && navItem.badge > 0 && (
                               <span className="ml-auto px-2 py-0.5 bg-brand-yellow text-black text-xs font-bold rounded-full flex-shrink-0 shadow-sm animate-pulse">
                                 {navItem.badge}

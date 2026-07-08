@@ -47,7 +47,7 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
     { icon: PenLine, label: 'Socratic Writing Studio', path: '/educator/socratic-writing' },
     { icon: FileText, label: 'Avatar Lecture Studio', path: '/educator/lecture/new' },
     { icon: GraduationCap, label: 'Personalized Quiz Generator', path: '/educator/quiz/new' },
-    { icon: ClipboardCheck, label: 'AI Policy Builder', path: '/educator/policy-suggestor' },
+    { icon: ClipboardCheck, label: 'AI Policy Builder', path: '/educator/policy-suggestor', comingSoon: true },
   ];
 
   const courseNavItems: NavItem[] = courses.map(course => ({

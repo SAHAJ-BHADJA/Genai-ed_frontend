@@ -96,6 +96,22 @@ interface GeneratedQuiz {
   student_name?: string;
 }
 
+const getStudentDisplayName = (student: Student) => {
+  const profileName = [student.first_name, student.last_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(' ');
+
+  if (profileName) return profileName;
+
+  const emailName = student.email
+    ?.split('@')[0]
+    ?.replace(/[._-]+/g, ' ')
+    ?.trim();
+
+  return emailName || 'Student';
+};
+
 export default function CreateQuiz() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -523,40 +539,41 @@ export default function CreateQuiz() {
 
     console.log('loadStudentsForCourses courseIds:', courseIds);
 
-    const { data, error } = await supabase
-      .from('course_students')
-      .select(`
-        id,
-        course_id,
-        student_id,
-        email,
-        student_profile:profiles!course_students_student_id_fkey!left (
-          first_name,
-          last_name
-        )
-      `)
-      .in('course_id', courseIds);
+    const rosterResults = await Promise.all(
+      courseIds.map(async (courseId) => {
+        const { data, error } = await supabase.rpc('get_course_student_roster', {
+          p_course_id: courseId,
+        });
 
-    
-    console.log("RAW course_students:", { data, error });
+        return { courseId, data, error };
+      })
+    );
 
+    const rosterError = rosterResults.find((result) => result.error)?.error;
 
-    console.log('loadStudentsForCourses result:', { data, error });
-
-    if (error) {
-      console.error('Error loading students:', error);
+    if (rosterError) {
+      console.error('Error loading students:', rosterError);
       return;
     }
 
-    if (!data) {
+    const rosterRows = rosterResults.flatMap((result) =>
+      (result.data ?? []).map((row: any) => ({
+        ...row,
+        course_id: result.courseId,
+      }))
+    );
+
+    console.log('loadStudentsForCourses roster result:', rosterRows);
+
+    if (rosterRows.length === 0) {
       setStudents([]);
       return;
     }
 
     const uniqueStudents = new Map<string, Student>();
 
-    (data || []).forEach((row: any) => {
-      const enrollmentId = row.id as string;
+    rosterRows.forEach((row: any) => {
+      const enrollmentId = row.course_student_id as string;
       if (!enrollmentId) return;
 
       if (!uniqueStudents.has(enrollmentId)) {
@@ -565,8 +582,8 @@ export default function CreateQuiz() {
           student_id: row.student_id ?? null,
           email: row.email,
           course_id: row.course_id,
-          first_name: row.student_profile?.first_name ?? undefined,
-          last_name: row.student_profile?.last_name ?? undefined,
+          first_name: row.first_name ?? undefined,
+          last_name: row.last_name ?? undefined,
         });
       }
     });
@@ -1594,9 +1611,7 @@ export default function CreateQuiz() {
                                   </div>
                                   <div>
                                     <div className="font-medium text-gray-900">
-                                      {student.first_name && student.last_name
-                                        ? `${student.first_name} ${student.last_name}`
-                                        : 'Student'}
+                                      {getStudentDisplayName(student)}
                                     </div>
                                     <div className="text-sm text-gray-600">{student.email}</div>
                                     {!student.student_id && (

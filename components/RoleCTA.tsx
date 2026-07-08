@@ -1,10 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { UserCircle, GraduationCap } from 'lucide-react';
+import { X } from 'lucide-react';
 
 export default function RoleCTA() {
   const router = useRouter();
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const handleEducatorClick = () => {
     localStorage.setItem('selectedRole', 'educator');
@@ -42,14 +44,54 @@ export default function RoleCTA() {
         </div>
 
         <div className="text-center">
-          <a
-            href="#"
+          <button
+            type="button"
+            onClick={() => setShowTutorial(true)}
             className="text-sm text-gray-700 hover:text-brand-maroon underline transition-colors focus:outline-none focus:ring-2 focus:ring-brand-maroon rounded px-2 py-1"
           >
-            Sign in as an administrator
-          </a>
+            Sign Up Tutorial
+          </button>
         </div>
       </div>
+
+      {showTutorial && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-black/60 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="signup-tutorial-title"
+        >
+          <div className="relative flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 id="signup-tutorial-title" className="text-lg font-bold text-gray-900">
+                  Sign Up Tutorial
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Follow this guide to create your Cogitatis AI educator account.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTutorial(false)}
+                className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-maroon"
+                aria-label="Close tutorial"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden bg-gray-50 p-3 sm:p-5">
+              <iframe
+                src="https://scribehow.com/embed/Create_Your_Cogitatis_AI_Educator_Account__Sp46MHbkTRGKe64w3uzRIg"
+                title="Create Your Cogitatis AI Educator Account"
+                allow="fullscreen"
+                className="h-full w-full rounded-xl border-0 bg-white"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

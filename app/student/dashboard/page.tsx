@@ -302,7 +302,7 @@ export default function StudentDashboard() {
       color: 'bg-purple-50 dark:bg-purple-950',
       iconColor: 'text-purple-600 dark:text-purple-400',
       href: '/student/brainstorming',
-      comingSoon: true
+      comingSoon: false
     },
     {
       title: 'Knowledge Check',
@@ -419,12 +419,17 @@ export default function StudentDashboard() {
         )}
 
         <section>
-          <h2 className="text-2xl font-bold text-foreground mb-4">Training</h2>
+          <div className="mb-4 flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-foreground">Training</h2>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              Coming soon
+            </span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {trainingCourses.map((course) => (
               <div
                 key={course.id}
-                className="bg-card border border-border rounded-xl overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+                className="relative bg-card border border-border rounded-xl overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
               >
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
@@ -448,7 +453,12 @@ export default function StudentDashboard() {
         </section>
 
         <section>
-          <h2 className="text-2xl font-bold text-foreground mb-4">USC Library Resources</h2>
+          <div className="mb-4 flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-foreground">USC Library Resources</h2>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              Coming soon
+            </span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {libraryResources.map((resource) => (
               <div

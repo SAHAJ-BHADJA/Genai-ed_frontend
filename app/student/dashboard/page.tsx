@@ -287,15 +287,6 @@ export default function StudentDashboard() {
       comingSoon: false
     },
     {
-      title: 'Avatar Lecture Studio',
-      description: 'Generate voice or avatar-based mini-lectures and slides from course materials.',
-      icon: Video,
-      color: 'bg-red-50 dark:bg-red-950',
-      iconColor: 'text-brand-maroon',
-      href: '/student/create-lecture',
-      comingSoon: false
-    },
-    {
       title: 'Socratic Writing Studio',
       description: 'Clarify ideas, explore research, and build arguments with guided AI support.',
       icon: Lightbulb,
@@ -303,6 +294,15 @@ export default function StudentDashboard() {
       iconColor: 'text-purple-600 dark:text-purple-400',
       href: '/student/brainstorming',
       comingSoon: false
+    },
+    {
+      title: 'Avatar Lecture Studio',
+      description: 'Generate voice or avatar-based mini-lectures and slides from course materials.',
+      icon: Video,
+      color: 'bg-red-50 dark:bg-red-950',
+      iconColor: 'text-brand-maroon',
+      href: '/student/create-lecture',
+      comingSoon: true
     },
     {
       title: 'Knowledge Check',

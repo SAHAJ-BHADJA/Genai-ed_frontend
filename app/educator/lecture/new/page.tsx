@@ -81,7 +81,7 @@ export default function CreateLecture() {
   const [scriptDirect, setScriptDirect] = useState('');
   const [scriptFile, setScriptFile] = useState<File | null>(null);
   const [aiPrompt, setAiPrompt] = useState('');
-  const [videoLength, setVideoLength] = useState(5);
+  const [videoLength, setVideoLength] = useState(1);
   const [generatedScript, setGeneratedScript] = useState('');
   const [scriptGenerated, setScriptGenerated] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);

@@ -1,0 +1,35 @@
+name: Mirror to genai4usc frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-to-genai4usc-main
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Push main to genai4usc
+    runs-on: ubuntu-latest
+    if: github.repository == 'SAHAJ-BHADJA/Genai-ed_frontend'
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push to genai4usc mirror
+        env:
+          MIRROR_TOKEN: ${{ secrets.GENAI4USC_MIRROR_TOKEN }}
+        run: |
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "Missing GENAI4USC_MIRROR_TOKEN repository secret." >&2
+            exit 1
+          fi
+
+          git remote add genai4usc-mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/genai4usc-cloud/Frontend_Genai-ed.git"
+          git push genai4usc-mirror HEAD:main

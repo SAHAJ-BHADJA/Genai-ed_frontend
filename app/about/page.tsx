@@ -64,7 +64,7 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <SectionTitle
             title="Our Approach"
-            subtitle="GenAI is built on three core principles that guide every feature and interaction"
+            subtitle="Cogitatis AI is built on three core principles that guide every feature and interaction"
           />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

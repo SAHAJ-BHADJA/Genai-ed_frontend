@@ -43,10 +43,38 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   model?: string;
+  mode?: Mode;
+  metadata?: any;
   timestamp: Date;
 };
 
 type Mode = 'single' | 'compare' | 'multi-judge' | 'single-judge';
+
+type PlaygroundConversation = {
+  id: string;
+  title: string;
+  userRole?: 'educator' | 'student';
+  activeMode?: Mode;
+  activeModelId?: string | null;
+  settings?: any;
+  summary?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  messageCount?: number;
+};
+
+type PlaygroundConversationDetail = {
+  conversation: PlaygroundConversation;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    mode?: Mode;
+    modelId?: string | null;
+    metadata?: any;
+    createdAt?: string;
+  }>;
+};
 
 type EnvelopeItem = {
   kind: string;
@@ -147,6 +175,82 @@ const AI_MODELS: AIModel[] = [
 
 const BACKEND_BASE = getBackendBase();
 
+function getPortalRole(): 'educator' | 'student' {
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/student')) {
+    return 'student';
+  }
+  return 'educator';
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('No active session found.');
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.access_token}`,
+  };
+}
+
+function mapStoredMessages(messages: PlaygroundConversationDetail['messages']): Message[] {
+  return (messages || []).map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: message.content || '',
+    model: message.modelId || undefined,
+    mode: message.mode,
+    metadata: message.metadata || {},
+    timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+  }));
+}
+
+function truncateForContext(value: string, maxLength = 9000): string {
+  const text = (value || '').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n\n[Earlier content truncated for context length.]`;
+}
+
+function buildContextualPrompt(history: Message[], currentPrompt: string): string {
+  const usefulHistory = history
+    .filter((message) => message.content.trim() && !message.content.trim().startsWith('Error:'))
+    .slice(-18);
+
+  if (!usefulHistory.length) return currentPrompt;
+
+  const transcript = usefulHistory
+    .map((message) => {
+      const speaker = message.role === 'user' ? 'User' : `Assistant${message.model ? ` (${message.model})` : ''}`;
+      return `${speaker}: ${truncateForContext(message.content, 1800)}`;
+    })
+    .join('\n\n');
+
+  return [
+    'Use the conversation history below as context. Answer the current user message, not the older messages.',
+    'If the current message uses pronouns or references like "it", resolve them from the history.',
+    '',
+    'Conversation history:',
+    transcript,
+    '',
+    'Current user message:',
+    currentPrompt,
+  ].join('\n');
+}
+
+function formatCompareAssistantMessage(items: EnvelopeItem[]): string {
+  const outputs = (items || [])
+    .map((item) => {
+      const modelName = AI_MODELS.find((model) => model.id === item.modelId)?.name || item.modelId;
+      return `${modelName}:\n${truncateForContext(getEnvelopeText(item), 2500)}`;
+    })
+    .join('\n\n');
+  return outputs || 'The selected models did not return usable output.';
+}
+
 function getEnvelopeText(item?: EnvelopeItem | null): string {
   const v = item?.content?.value;
   if (typeof v === 'string' && v.trim().length > 0) return v;
@@ -164,11 +268,10 @@ function toLlmOutputs(items: EnvelopeItem[]): LlmOutput[] {
 }
 
 async function apiPost(path: string, body: any): Promise<any> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`${BACKEND_BASE}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -189,6 +292,53 @@ async function apiPost(path: string, body: any): Promise<any> {
   return json;
 }
 
+async function apiGet(path: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BACKEND_BASE}${path}`, {
+    method: 'GET',
+    headers,
+  });
+
+  const text = await res.text();
+  let json: any;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Failed to parse response: ${text}`);
+  }
+
+  if (!res.ok) {
+    const errorMessage = json.detail || json.message || text || `HTTP ${res.status}`;
+    throw new Error(errorMessage);
+  }
+
+  return json;
+}
+
+async function apiPatch(path: string, body: any): Promise<any> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BACKEND_BASE}${path}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text();
+  let json: any;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Failed to parse response: ${text}`);
+  }
+
+  if (!res.ok) {
+    const errorMessage = json.detail || json.message || text || `HTTP ${res.status}`;
+    throw new Error(errorMessage);
+  }
+
+  return json;
+}
+
 async function streamSinglePlaygroundResponse(
   body: any,
   handlers: {
@@ -197,11 +347,10 @@ async function streamSinglePlaygroundResponse(
     onError: (message: string) => void;
   }
 ): Promise<void> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`${BACKEND_BASE}/api/llm-playground/single/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -224,10 +373,18 @@ async function streamSinglePlaygroundResponse(
   const decoder = new TextDecoder();
   let buffer = '';
   let currentEvent = 'message';
+  let streamError = '';
 
   const processEvent = (eventName: string, data: string) => {
     if (!data.trim()) return;
-    const payload = JSON.parse(data);
+    let payload: any;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      streamError = `Malformed stream event: ${data}`;
+      handlers.onError(streamError);
+      return;
+    }
     if (eventName === 'delta') {
       handlers.onDelta(payload.text || '');
       return;
@@ -237,7 +394,8 @@ async function streamSinglePlaygroundResponse(
       return;
     }
     if (eventName === 'error') {
-      handlers.onError(payload.message || 'Streaming request failed.');
+      streamError = payload.message || 'Streaming request failed.';
+      handlers.onError(streamError);
     }
   };
 
@@ -265,6 +423,9 @@ async function streamSinglePlaygroundResponse(
       if (dataLines.length > 0) {
         processEvent(currentEvent, dataLines.join('\n'));
       }
+      if (streamError) {
+        throw new Error(streamError);
+      }
 
       boundary = buffer.indexOf('\n\n');
     }
@@ -284,6 +445,9 @@ async function streamSinglePlaygroundResponse(
         }
         if (dataLines.length > 0) {
           processEvent(currentEvent, dataLines.join('\n'));
+        }
+        if (streamError) {
+          throw new Error(streamError);
         }
       }
       break;
@@ -381,6 +545,9 @@ export default function LLMPlayground() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>('single');
+  const [conversations, setConversations] = useState<PlaygroundConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isConversationLoading, setIsConversationLoading] = useState(false);
 
   const [selectedModel, setSelectedModel] = useState<string>('gpt-5.2-chat');
   const [singleMessages, setSingleMessages] = useState<Message[]>([]);
@@ -427,6 +594,12 @@ export default function LLMPlayground() {
   }, []);
 
   useEffect(() => {
+    if (profile) {
+      void loadConversations();
+    }
+  }, [profile?.id]);
+
+  useEffect(() => {
     const handleEsc = (e: Event) => {
       const keyEvent = e as unknown as { key: string };
       if (keyEvent.key === 'Escape' && openCell) {
@@ -462,6 +635,168 @@ export default function LLMPlayground() {
     setOrchestratorModelId(activeRun.orchestratorModelId ?? '');
     setOrchestrationPrompt(activeRun.orchestrationPrompt ?? '');
   }, [mode, activeCompareRunId, compareRuns]);
+
+  const resetTransientRuns = () => {
+    setCompareRuns([]);
+    setActiveCompareRunId(null);
+    setMultiJudgeRuns([]);
+    setSingleJudgeRuns([]);
+    setOrchestratorModelId('');
+    setOrchestrationPrompt('');
+  };
+
+  const applyConversationDetail = (detail: PlaygroundConversationDetail) => {
+    const conversation = detail.conversation;
+    setActiveConversationId(conversation.id);
+    setSingleMessages(mapStoredMessages(detail.messages));
+    resetTransientRuns();
+
+    if (conversation.activeMode) setMode(conversation.activeMode);
+    if (conversation.activeModelId) setSelectedModel(conversation.activeModelId);
+
+    const settings = conversation.settings || {};
+    if (typeof settings.temperature === 'number') setTemperature(settings.temperature);
+    if (typeof settings.maxTokens === 'number') setMaxTokens(settings.maxTokens);
+    if (typeof settings.includeSystemInstruction === 'boolean') {
+      setIncludeSystemInstruction(settings.includeSystemInstruction);
+    }
+    if (typeof settings.systemPrompt === 'string') setSystemPrompt(settings.systemPrompt);
+  };
+
+  const loadConversations = async () => {
+    setIsConversationLoading(true);
+    try {
+      const role = getPortalRole();
+      const list = await apiGet(`/api/llm-playground/conversations?userRole=${role}`);
+      const loadedConversations = (list.conversations || []) as PlaygroundConversation[];
+      setConversations(loadedConversations);
+
+      if (loadedConversations.length > 0) {
+        const detail = await apiGet(`/api/llm-playground/conversations/${loadedConversations[0].id}`);
+        applyConversationDetail(detail as PlaygroundConversationDetail);
+        return;
+      }
+
+      const detail = await apiPost('/api/llm-playground/conversations', {
+        userRole: role,
+        activeMode: mode,
+        activeModelId: selectedModel,
+        settings: getCurrentRequestSettings(),
+      });
+      applyConversationDetail(detail as PlaygroundConversationDetail);
+      setConversations([(detail as PlaygroundConversationDetail).conversation]);
+    } catch (error) {
+      console.error('Error loading LLM Playground conversations:', error);
+    } finally {
+      setIsConversationLoading(false);
+    }
+  };
+
+  const refreshConversationList = async () => {
+    try {
+      const role = getPortalRole();
+      const list = await apiGet(`/api/llm-playground/conversations?userRole=${role}`);
+      setConversations((list.conversations || []) as PlaygroundConversation[]);
+    } catch (error) {
+      console.error('Error refreshing LLM Playground conversations:', error);
+    }
+  };
+
+  const getCurrentRequestSettings = () => ({
+    temperature,
+    maxTokens,
+    includeSystemInstruction,
+    systemPrompt,
+  });
+
+  const ensureConversation = async (): Promise<string> => {
+    if (activeConversationId) return activeConversationId;
+
+    const detail = await apiPost('/api/llm-playground/conversations', {
+      userRole: getPortalRole(),
+      activeMode: mode,
+      activeModelId: selectedModel,
+      settings: getCurrentRequestSettings(),
+    });
+    applyConversationDetail(detail as PlaygroundConversationDetail);
+    await refreshConversationList();
+    return (detail as PlaygroundConversationDetail).conversation.id;
+  };
+
+  const handleNewConversation = async () => {
+    if (isProcessing) return;
+    setIsConversationLoading(true);
+    try {
+      const detail = await apiPost('/api/llm-playground/conversations', {
+        userRole: getPortalRole(),
+        activeMode: mode,
+        activeModelId: selectedModel,
+        settings: getCurrentRequestSettings(),
+      });
+      applyConversationDetail(detail as PlaygroundConversationDetail);
+      await refreshConversationList();
+    } catch (error) {
+      console.error('Error creating LLM Playground conversation:', error);
+    } finally {
+      setIsConversationLoading(false);
+    }
+  };
+
+  const handleSelectConversation = async (conversationId: string) => {
+    if (!conversationId || conversationId === activeConversationId || isProcessing) return;
+    setIsConversationLoading(true);
+    try {
+      const detail = await apiGet(`/api/llm-playground/conversations/${conversationId}`);
+      applyConversationDetail(detail as PlaygroundConversationDetail);
+    } catch (error) {
+      console.error('Error selecting LLM Playground conversation:', error);
+    } finally {
+      setIsConversationLoading(false);
+    }
+  };
+
+  const handleModeChange = async (nextMode: Mode) => {
+    setMode(nextMode);
+    if (!activeConversationId) return;
+    try {
+      await apiPatch(`/api/llm-playground/conversations/${activeConversationId}`, {
+        activeMode: nextMode,
+        activeModelId: selectedModel,
+        settings: getCurrentRequestSettings(),
+      });
+      await refreshConversationList();
+    } catch (error) {
+      console.error('Error saving LLM Playground mode:', error);
+    }
+  };
+
+  const saveConversationTurn = async (payload: {
+    conversationId: string;
+    mode: Mode;
+    prompt: string;
+    assistantContent: string;
+    modelId?: string;
+    modelOutputs?: any[];
+    judgement?: any;
+    metadata?: any;
+  }) => {
+    try {
+      const detail = await apiPost(`/api/llm-playground/conversations/${payload.conversationId}/turn`, {
+        mode: payload.mode,
+        prompt: payload.prompt,
+        assistantContent: payload.assistantContent,
+        modelId: payload.modelId,
+        requestSettings: getCurrentRequestSettings(),
+        modelOutputs: payload.modelOutputs || [],
+        judgement: payload.judgement,
+        metadata: payload.metadata || {},
+      });
+      setSingleMessages(mapStoredMessages((detail as PlaygroundConversationDetail).messages));
+      await refreshConversationList();
+    } catch (error) {
+      console.error('Error saving LLM Playground conversation turn:', error);
+    }
+  };
 
   const checkAuth = async () => {
     try {
@@ -510,6 +845,15 @@ export default function LLMPlayground() {
 
     const userPrompt = input.trim();
     setInput('');
+    let conversationId = activeConversationId;
+    try {
+      conversationId = await ensureConversation();
+    } catch (error) {
+      console.error('Error preparing LLM Playground conversation:', error);
+      window.alert('Could not prepare the saved conversation. Please try again.');
+      return;
+    }
+    if (!conversationId) return;
 
     if (mode === 'single') {
       const userMessageId = Date.now().toString();
@@ -531,10 +875,21 @@ export default function LLMPlayground() {
 
       setIsProcessing(true);
       setActiveSingleAssistantId(assistantMessageId);
+      let finalAssistantContent = '';
+      let finalOutput: EnvelopeItem | null = null;
       try {
         await streamSinglePlaygroundResponse({
           modelId: selectedModel,
-          prompt: userPrompt,
+          messages: [
+            ...singleMessages
+              .filter((message) => message.content.trim())
+              .map((message) => ({
+                role: message.role,
+                content: message.content,
+                model: message.model,
+              })),
+            { role: 'user', content: userPrompt },
+          ],
           config: {
             temperature,
             maxTokens,
@@ -553,6 +908,8 @@ export default function LLMPlayground() {
           },
           onDone: (item) => {
             const text = getEnvelopeText(item);
+            finalAssistantContent = text;
+            finalOutput = item;
             setSingleMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantMessageId
@@ -562,6 +919,7 @@ export default function LLMPlayground() {
             );
           },
           onError: (message) => {
+            finalAssistantContent = `Error: ${message}`;
             setSingleMessages((prev) =>
               prev.map((entry) =>
                 entry.id === assistantMessageId
@@ -571,14 +929,31 @@ export default function LLMPlayground() {
             );
           },
         });
+        await saveConversationTurn({
+          conversationId,
+          mode: 'single',
+          prompt: userPrompt,
+          assistantContent: finalAssistantContent || 'No response',
+          modelId: selectedModel,
+          modelOutputs: finalOutput ? [finalOutput] : [],
+        });
       } catch (error: any) {
+        const errorContent = `Error: ${error.message}`;
         setSingleMessages((prev) =>
           prev.map((entry) =>
             entry.id === assistantMessageId
-              ? { ...entry, content: `Error: ${error.message}` }
+              ? { ...entry, content: errorContent }
               : entry
           )
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'single',
+          prompt: userPrompt,
+          assistantContent: errorContent,
+          modelId: selectedModel,
+          metadata: { error: error.message },
+        });
       } finally {
         setIsProcessing(false);
         setActiveSingleAssistantId(null);
@@ -611,9 +986,10 @@ export default function LLMPlayground() {
 
       setIsProcessing(true);
       try {
+        const contextualPrompt = buildContextualPrompt(singleMessages, userPrompt);
         const resp = await apiPost('/api/llm-playground/compare', {
           modelIds: compareModelIds,
-          prompt: userPrompt,
+          prompt: contextualPrompt,
           config: {
             temperature,
             maxTokens,
@@ -633,6 +1009,15 @@ export default function LLMPlayground() {
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'compare',
+          prompt: userPrompt,
+          assistantContent: formatCompareAssistantMessage(items),
+          modelId: 'compare',
+          modelOutputs: items,
+          metadata: { contextualPrompt },
+        });
       } catch (error: any) {
         setCompareRuns((prev) =>
           prev.map((r) => {
@@ -648,6 +1033,14 @@ export default function LLMPlayground() {
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'compare',
+          prompt: userPrompt,
+          assistantContent: `Error: ${error.message}`,
+          modelId: 'compare',
+          metadata: { error: error.message },
+        });
       } finally {
         setIsProcessing(false);
       }
@@ -684,9 +1077,10 @@ export default function LLMPlayground() {
 
       setIsProcessing(true);
       try {
+        const contextualPrompt = buildContextualPrompt(singleMessages, userPrompt);
         const compareResp = await apiPost('/api/llm-playground/compare', {
           modelIds: multiJudgePrimaryIds,
-          prompt: userPrompt,
+          prompt: contextualPrompt,
           config: {
             temperature,
             maxTokens,
@@ -711,7 +1105,7 @@ export default function LLMPlayground() {
 
         const judgeResp = await apiPost('/api/llm-playground/judge/multi', {
           judgeModelIds: multiJudgeJudgeIds,
-          prompt: userPrompt,
+          prompt: contextualPrompt,
           primaryOutputs: primaryOutputsForJudge,
           config: {
             temperature,
@@ -722,17 +1116,34 @@ export default function LLMPlayground() {
         });
 
         const judgeEnv = judgeResp as EnvelopeResponse;
+        const assessments = judgeEnv.items || [];
+        const assessmentText = assessments.map((item) => getEnvelopeText(item)).join('\n\n');
 
         setMultiJudgeRuns((prev) =>
           prev.map((r) => {
             if (r.id !== newRun.id) return r;
             return {
               ...r,
-              assessments: judgeEnv.items || [],
+              assessments,
               meta: judgeEnv.meta ?? null,
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'multi-judge',
+          prompt: userPrompt,
+          assistantContent: assessmentText || 'Multi-judge evaluation completed.',
+          modelId: multiJudgeJudgeIds.join(','),
+          modelOutputs: [...primaryEnvelopeItems, ...assessments],
+          judgement: {
+            type: 'multi-judge',
+            modelId: multiJudgeJudgeIds.join(','),
+            text: assessmentText,
+            structured: judgeEnv.meta ?? null,
+          },
+          metadata: { contextualPrompt },
+        });
       } catch (error: any) {
         setMultiJudgeRuns((prev) =>
           prev.map((r) => {
@@ -743,6 +1154,14 @@ export default function LLMPlayground() {
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'multi-judge',
+          prompt: userPrompt,
+          assistantContent: `Error: ${error.message}`,
+          modelId: multiJudgeJudgeIds.join(','),
+          metadata: { error: error.message },
+        });
       } finally {
         setIsProcessing(false);
       }
@@ -780,9 +1199,10 @@ export default function LLMPlayground() {
 
       setIsProcessing(true);
       try {
+        const contextualPrompt = buildContextualPrompt(singleMessages, userPrompt);
         const compareResp = await apiPost('/api/llm-playground/compare', {
           modelIds: singleJudgePrimaryIds,
-          prompt: userPrompt,
+          prompt: contextualPrompt,
           config: {
             temperature,
             maxTokens,
@@ -807,7 +1227,7 @@ export default function LLMPlayground() {
 
         const judgeResp = await apiPost('/api/llm-playground/judge/single', {
           evaluatorModelId: singleJudgeEvaluatorId,
-          prompt: userPrompt,
+          prompt: contextualPrompt,
           primaryOutputs: primaryOutputsForJudge,
           config: {
             temperature,
@@ -833,6 +1253,21 @@ export default function LLMPlayground() {
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'single-judge',
+          prompt: userPrompt,
+          assistantContent: report,
+          modelId: singleJudgeEvaluatorId,
+          modelOutputs: [...primaryEnvelopeItems, ...(judgeEnv.items || [])],
+          judgement: {
+            type: 'single-judge',
+            modelId: singleJudgeEvaluatorId,
+            text: report,
+            structured,
+          },
+          metadata: { contextualPrompt },
+        });
       } catch (error: any) {
         setSingleJudgeRuns((prev) =>
           prev.map((r) => {
@@ -845,6 +1280,14 @@ export default function LLMPlayground() {
             };
           })
         );
+        await saveConversationTurn({
+          conversationId,
+          mode: 'single-judge',
+          prompt: userPrompt,
+          assistantContent: `Error: ${error.message}`,
+          modelId: singleJudgeEvaluatorId,
+          metadata: { error: error.message },
+        });
       } finally {
         setIsProcessing(false);
       }
@@ -867,9 +1310,11 @@ export default function LLMPlayground() {
 
     setIsProcessing(true);
     try {
+      const conversationId = await ensureConversation();
+      const contextualPrompt = buildContextualPrompt(singleMessages, activeRun.prompt);
       const resp = await apiPost('/api/llm-playground/orchestrate', {
         orchestratorModelId,
-        prompt: activeRun.prompt,
+        prompt: contextualPrompt,
         outputs: toLlmOutputs(activeRun.outputs),
         orchestrationPrompt: orchestrationPrompt || undefined,
         config: {
@@ -917,6 +1362,25 @@ export default function LLMPlayground() {
           };
         })
       );
+      await saveConversationTurn({
+        conversationId,
+        mode: 'compare',
+        prompt: activeRun.prompt,
+        assistantContent: finalAnswer,
+        modelId: orchestratorModelId,
+        modelOutputs: item ? [item] : [],
+        judgement: {
+          type: 'orchestrated-final',
+          modelId: orchestratorModelId,
+          text: finalAnswer,
+          structured: item?.structured ?? null,
+        },
+        metadata: {
+          rationale,
+          contextualPrompt,
+          orchestrationPrompt: orchestrationPrompt || undefined,
+        },
+      });
     } catch (error: any) {
       setCompareRuns((prev) =>
         prev.map((run) => {
@@ -935,20 +1399,19 @@ export default function LLMPlayground() {
     }
   };
 
-  const handleClearChat = () => {
+  const handleClearChat = async () => {
     if (!confirm('Are you sure you want to clear the chat history?')) return;
 
-    if (mode === 'single') {
-      setSingleMessages([]);
-    } else if (mode === 'compare') {
-      setCompareRuns([]);
-      setActiveCompareRunId(null);
-      setOrchestratorModelId('');
-      setOrchestrationPrompt('');
-    } else if (mode === 'multi-judge') {
-      setMultiJudgeRuns([]);
-    } else if (mode === 'single-judge') {
-      setSingleJudgeRuns([]);
+    setSingleMessages([]);
+    resetTransientRuns();
+    if (activeConversationId) {
+      try {
+        const detail = await apiPost(`/api/llm-playground/conversations/${activeConversationId}/clear`, {});
+        applyConversationDetail(detail as PlaygroundConversationDetail);
+        await refreshConversationList();
+      } catch (error) {
+        console.error('Error clearing LLM Playground conversation:', error);
+      }
     }
   };
 
@@ -1232,6 +1695,55 @@ export default function LLMPlayground() {
     }
   };
 
+  const renderSharedConversationThread = (title = 'Shared Conversation Context') => {
+    if (singleMessages.length === 0) return null;
+
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-brand-maroon" />
+            <h3 className="font-semibold text-gray-900">{title}</h3>
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
+            This is the saved conversation memory used when you switch modes.
+          </p>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {singleMessages.map((message) => (
+            <div
+              key={`shared-${message.id}`}
+              className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              {message.role === 'assistant' && (
+                <div className="w-8 h-8 bg-brand-maroon rounded-full flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+              )}
+
+              <div
+                className={`max-w-2xl rounded-2xl px-4 py-3 ${
+                  message.role === 'user'
+                    ? 'bg-gradient-to-br from-brand-maroon to-red-800 text-white shadow-sm [&_.markdown-content]:text-white [&_.markdown-content_*]:text-white [&_.markdown-content_p]:mb-0'
+                    : 'bg-white text-gray-900 border border-gray-200'
+                }`}
+              >
+                <Markdown value={message.content} />
+              </div>
+
+              {message.role === 'user' && (
+                <div className="w-8 h-8 bg-brand-yellow rounded-full flex items-center justify-center flex-shrink-0 font-bold text-gray-900">
+                  {profile?.first_name?.[0]}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderCompareRuns = () => {
     const activeRun = compareRuns.find(r => r.id === activeCompareRunId);
 
@@ -1246,6 +1758,9 @@ export default function LLMPlayground() {
               </div>
               <p className="text-sm text-gray-600">Send a prompt to create your first compare run.</p>
             </div>
+            <div className="mt-6">
+              {renderSharedConversationThread()}
+            </div>
           </div>
         </div>
       );
@@ -1255,6 +1770,7 @@ export default function LLMPlayground() {
       <div className="h-full overflow-hidden">
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-6xl mx-auto space-y-6">
+            {renderSharedConversationThread()}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
                 <div className="flex items-center gap-2">
@@ -2128,7 +2644,7 @@ export default function LLMPlayground() {
     </div>
   );
 
-  const messageCount =
+  const modeRunCount =
     mode === 'single'
       ? singleMessages.filter((m) => m.role === 'user').length
       : mode === 'compare'
@@ -2136,6 +2652,7 @@ export default function LLMPlayground() {
       : mode === 'multi-judge'
       ? multiJudgeRuns.length
       : singleJudgeRuns.length;
+  const messageCount = Math.max(singleMessages.filter((m) => m.role === 'user').length, modeRunCount);
 
   if (loading || !profile) {
     return (
@@ -2169,7 +2686,7 @@ export default function LLMPlayground() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-2 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
               <button
-                onClick={() => setMode('single')}
+                onClick={() => handleModeChange('single')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                   mode === 'single' ? 'bg-brand-maroon text-white shadow-md' : 'text-gray-700 hover:bg-gray-50'
                 }`}
@@ -2179,7 +2696,7 @@ export default function LLMPlayground() {
               </button>
 
               <button
-                onClick={() => setMode('compare')}
+                onClick={() => handleModeChange('compare')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                   mode === 'compare' ? 'bg-brand-maroon text-white shadow-md' : 'text-gray-700 hover:bg-gray-50'
                 }`}
@@ -2189,7 +2706,7 @@ export default function LLMPlayground() {
               </button>
 
               <button
-                onClick={() => setMode('multi-judge')}
+                onClick={() => handleModeChange('multi-judge')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                   mode === 'multi-judge' ? 'bg-brand-maroon text-white shadow-md' : 'text-gray-700 hover:bg-gray-50'
                 }`}
@@ -2199,7 +2716,7 @@ export default function LLMPlayground() {
               </button>
 
               <button
-                onClick={() => setMode('single-judge')}
+                onClick={() => handleModeChange('single-judge')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                   mode === 'single-judge' ? 'bg-brand-maroon text-white shadow-md' : 'text-gray-700 hover:bg-gray-50'
                 }`}
@@ -2253,6 +2770,32 @@ export default function LLMPlayground() {
                       <ChevronLeft className="w-4 h-4 text-gray-600" />
                     </button>
                   </div>
+                  <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                    <select
+                      value={activeConversationId || ''}
+                      onChange={(event) => handleSelectConversation(event.target.value)}
+                      disabled={isConversationLoading || isProcessing}
+                      className="min-w-0 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent"
+                    >
+                      {conversations.length === 0 ? (
+                        <option value="">New chat</option>
+                      ) : (
+                        conversations.map((conversation) => (
+                          <option key={conversation.id} value={conversation.id}>
+                            {conversation.title || 'New chat'}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleNewConversation}
+                      disabled={isConversationLoading || isProcessing}
+                      className="px-3 py-2 text-sm font-semibold text-brand-maroon border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                    >
+                      New
+                    </button>
+                  </div>
                 </div>
                 <div className="p-4 space-y-6">
                   {renderSidebarForMode(mode)}
@@ -2293,6 +2836,32 @@ export default function LLMPlayground() {
                       className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       <X className="w-5 h-5 text-gray-600" />
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                    <select
+                      value={activeConversationId || ''}
+                      onChange={(event) => handleSelectConversation(event.target.value)}
+                      disabled={isConversationLoading || isProcessing}
+                      className="min-w-0 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent"
+                    >
+                      {conversations.length === 0 ? (
+                        <option value="">New chat</option>
+                      ) : (
+                        conversations.map((conversation) => (
+                          <option key={conversation.id} value={conversation.id}>
+                            {conversation.title || 'New chat'}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleNewConversation}
+                      disabled={isConversationLoading || isProcessing}
+                      className="px-3 py-2 text-sm font-semibold text-brand-maroon border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                    >
+                      New
                     </button>
                   </div>
                 </div>
@@ -2367,11 +2936,17 @@ export default function LLMPlayground() {
                 renderCompareRuns()
               ) : mode === 'multi-judge' ? (
                 <div className="h-full overflow-y-auto p-6">
-                  <div className="max-w-6xl mx-auto">{renderMultiJudgeRuns()}</div>
+                  <div className="max-w-6xl mx-auto space-y-6">
+                    {renderSharedConversationThread()}
+                    {renderMultiJudgeRuns()}
+                  </div>
                 </div>
               ) : mode === 'single-judge' ? (
                 <div className="h-full overflow-y-auto p-6">
-                  <div className="max-w-5xl mx-auto">{renderSingleJudgeRuns()}</div>
+                  <div className="max-w-5xl mx-auto space-y-6">
+                    {renderSharedConversationThread()}
+                    {renderSingleJudgeRuns()}
+                  </div>
                 </div>
               ) : (
                 <div className="h-full overflow-y-auto p-6">

@@ -33,5 +33,4 @@ jobs:
             exit 1
           fi
 
-          git remote add genai4usc-mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/genai4usc-cloud/Frontend_Genai-ed.git"
-          git push genai4usc-mirror HEAD:main
+          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/genai4usc-cloud/Frontend_Genai-ed.git" HEAD:main

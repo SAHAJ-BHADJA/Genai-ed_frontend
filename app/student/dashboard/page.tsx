@@ -302,16 +302,16 @@ export default function StudentDashboard() {
       color: 'bg-red-50 dark:bg-red-950',
       iconColor: 'text-brand-maroon',
       href: '/student/create-lecture',
-      comingSoon: true
+      comingSoon: false
     },
     {
-      title: 'Knowledge Check',
-      description: 'Test your understanding with quizzes generated from lectures, readings, or chosen topics.',
+      title: 'Personalized Quiz Generator',
+      description: 'Test your understanding with quizzes generated from essays, readings, or lecture.',
       icon: ClipboardCheck,
       color: 'bg-blue-50 dark:bg-blue-950',
       iconColor: 'text-blue-600 dark:text-blue-400',
       href: '/student/test-knowledge',
-      comingSoon: true
+      comingSoon: false
     }
   ];
 

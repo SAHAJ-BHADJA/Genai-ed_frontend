@@ -33,4 +33,6 @@ jobs:
             exit 1
           fi
 
-          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/genai4usc-cloud/Frontend_Genai-ed.git" HEAD:main
+          git config --global credential.helper store
+          printf 'https://x-access-token:%s@github.com\n' "$MIRROR_TOKEN" > ~/.git-credentials
+          git push "https://github.com/genai4usc-cloud/Frontend_Genai-ed.git" HEAD:main

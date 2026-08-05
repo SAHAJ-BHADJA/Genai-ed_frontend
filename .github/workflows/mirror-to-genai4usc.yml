@@ -26,6 +26,8 @@ jobs:
         env:
           MIRROR_TOKEN: ${{ secrets.GENAI4USC_MIRROR_TOKEN }}
         run: |
+          MIRROR_TOKEN="$(printf '%s' "$MIRROR_TOKEN" | tr -d '\r\n[:space:]')"
+
           if [ -z "$MIRROR_TOKEN" ]; then
             echo "Missing GENAI4USC_MIRROR_TOKEN repository secret." >&2
             exit 1

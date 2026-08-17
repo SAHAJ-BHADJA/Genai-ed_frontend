@@ -92,6 +92,10 @@ const promptHelp = {
     'Used only when generating the first visible Claude message for this stage. It does not run on every chat reply.',
   stageReadinessPrompt:
     'Used when regenerating hidden readiness goals for this stage. It tells Claude what understanding signals to create for the hidden goals. Students never see this prompt.',
+  readinessGuidance:
+    'Used only when regenerating hidden readiness goals for this stage. Write what understanding Claude should silently steer toward before suggesting the next stage.',
+  starterGuidance:
+    'Used only when generating the first visible student message for this stage. Write how the opening should sound, what it should emphasize, or what it should avoid.',
 };
 
 const PromptHelp = ({ text }: { text: string }) => (
@@ -102,6 +106,12 @@ const PromptHelp = ({ text }: { text: string }) => (
     </span>
   </span>
 );
+
+const getReadinessGuidance = (stageConfig: SocraticStudioBlueprint['stages'][SocraticStageKey]) =>
+  stageConfig.readinessGuidance ?? stageConfig.customInstructions ?? '';
+
+const getStarterGuidance = (stageConfig: SocraticStudioBlueprint['stages'][SocraticStageKey]) =>
+  stageConfig.starterGuidance ?? stageConfig.customInstructions ?? '';
 
 export default function SocraticStudioConfigurator({
   blueprint,
@@ -125,7 +135,7 @@ export default function SocraticStudioConfigurator({
           signatures[stage] = JSON.stringify({
             promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
             readinessPrompt: blueprint.stages[stage].readinessPrompt || DEFAULT_STAGE_READINESS_PROMPTS[stage],
-            customInstructions: blueprint.stages[stage].customInstructions || '',
+            readinessGuidance: getReadinessGuidance(blueprint.stages[stage]),
             assignmentTitle: blueprint.assignmentTitle || '',
             assignmentBrief: blueprint.assignmentBrief || '',
             resources: blueprint.resources || [],
@@ -142,7 +152,7 @@ export default function SocraticStudioConfigurator({
             promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
             systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
             starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
-            customInstructions: blueprint.stages[stage].customInstructions || '',
+            starterGuidance: getStarterGuidance(blueprint.stages[stage]),
             readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
           });
         }
@@ -292,7 +302,7 @@ export default function SocraticStudioConfigurator({
           promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
           systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
           starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
-          customInstructions: blueprint.stages[stage].customInstructions || '',
+          starterGuidance: getStarterGuidance(blueprint.stages[stage]),
           readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
         }),
       }));
@@ -305,7 +315,7 @@ export default function SocraticStudioConfigurator({
     JSON.stringify({
       promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
       readinessPrompt: blueprint.stages[stage].readinessPrompt || DEFAULT_STAGE_READINESS_PROMPTS[stage],
-      customInstructions: blueprint.stages[stage].customInstructions || '',
+      readinessGuidance: getReadinessGuidance(blueprint.stages[stage]),
       assignmentTitle: blueprint.assignmentTitle || '',
       assignmentBrief: blueprint.assignmentBrief || '',
       resources: blueprint.resources || [],
@@ -372,7 +382,7 @@ export default function SocraticStudioConfigurator({
       promptControls: blueprint.promptControls || DEFAULT_SOCRATIC_PROMPT_CONTROLS,
       systemPrompt: blueprint.stages[stage].systemPrompt || DEFAULT_STAGE_RUNTIME_PROMPTS[stage],
       starterPrompt: blueprint.stages[stage].starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage],
-      customInstructions: blueprint.stages[stage].customInstructions || '',
+      starterGuidance: getStarterGuidance(blueprint.stages[stage]),
       readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
     });
 
@@ -899,17 +909,23 @@ export default function SocraticStudioConfigurator({
                           1
                         </div>
                         <div>
-                          <h5 className="text-sm font-semibold text-gray-900">Educator guidance</h5>
+                          <h5 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            Hidden readiness guidance
+                            <PromptHelp text={promptHelp.readinessGuidance} />
+                          </h5>
                           <p className="text-xs text-gray-500">
-                            Add anything Claude should emphasize for this assignment and stage.
+                            Used when Claude regenerates the hidden goals for this stage.
                           </p>
                         </div>
                       </div>
                       <Textarea
-                        value={stageConfig.customInstructions || ''}
-                        onChange={(event) => updateStage(stage, { customInstructions: event.target.value })}
+                        value={getReadinessGuidance(stageConfig)}
+                        onChange={(event) => updateStage(stage, {
+                          readinessGuidance: event.target.value,
+                          customInstructions: event.target.value,
+                        })}
                         rows={5}
-                        placeholder={`Optional guidance for ${stageConfig.label}. Example: gently connect website development to mobile app design where useful.`}
+                        placeholder={`Example: Make sure students can connect the assignment question to the most important source concepts before moving on.`}
                         className="resize-none"
                       />
                       <details className="mt-3 rounded-lg border border-gray-200 bg-gray-50">
@@ -1082,9 +1098,23 @@ export default function SocraticStudioConfigurator({
                       </button>
                     </div>
 
+                    <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-800">
+                        Opening message guidance
+                        <PromptHelp text={promptHelp.starterGuidance} />
+                      </label>
+                      <Textarea
+                        value={getStarterGuidance(stageConfig)}
+                        onChange={(event) => updateStage(stage, { starterGuidance: event.target.value })}
+                        rows={4}
+                        placeholder={`Example: Start gently, avoid sounding like a rubric, and invite the student to respond with one uncertainty.`}
+                        className="resize-y bg-white text-sm leading-relaxed"
+                      />
+                    </div>
+
                     {starterMayBeStale && (
                       <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
-                        Goals or instructions changed after this student message was generated. Regenerate if the opening message should reflect the latest edits.
+                        Goals or opening-message guidance changed after this student message was generated. Regenerate if the opening message should reflect the latest edits.
                       </div>
                     )}
 
@@ -1102,7 +1132,7 @@ export default function SocraticStudioConfigurator({
                       className="min-h-[420px] resize-y text-sm leading-relaxed"
                     />
                     <p className="mt-3 text-xs text-gray-500">
-                      Uses assignment context, resources, educator guidance, and hidden readiness goals. Publish is blocked until every stage has goals and a student message.
+                      Uses assignment context, resources, opening-message guidance, and hidden readiness goals. Publish is blocked until every stage has goals and a student message.
                     </p>
                   </div>
                 </div>

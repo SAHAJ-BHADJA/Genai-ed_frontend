@@ -191,16 +191,20 @@ const mergeSocraticStageDefaults = (
   seed: SocraticStudioBlueprint,
 ): SocraticStudioBlueprint['stages'] => {
   return SOCRATIC_STAGE_ORDER.reduce((stages, stage) => {
+    const savedStage = draft.stages?.[stage];
+    const legacyGuidance = savedStage?.customInstructions || '';
     stages[stage] = {
       ...seed.stages[stage],
-      ...(draft.stages?.[stage] || {}),
-      systemPrompt: draft.stages?.[stage]?.systemPrompt || seed.stages[stage].systemPrompt,
-      starterPrompt: draft.stages?.[stage]?.starterPrompt || seed.stages[stage].starterPrompt,
-      readinessPrompt: draft.stages?.[stage]?.readinessPrompt || seed.stages[stage].readinessPrompt,
+      ...(savedStage || {}),
+      systemPrompt: savedStage?.systemPrompt || seed.stages[stage].systemPrompt,
+      starterPrompt: savedStage?.starterPrompt || seed.stages[stage].starterPrompt,
+      readinessPrompt: savedStage?.readinessPrompt || seed.stages[stage].readinessPrompt,
+      readinessGuidance: savedStage?.readinessGuidance ?? legacyGuidance,
+      starterGuidance: savedStage?.starterGuidance ?? legacyGuidance,
       starterQuestions: [],
-      customInstructions: draft.stages?.[stage]?.customInstructions || '',
-      readinessQuestions: draft.stages?.[stage]?.readinessQuestions || [],
-      starterResponse: draft.stages?.[stage]?.starterResponse || '',
+      customInstructions: legacyGuidance,
+      readinessQuestions: savedStage?.readinessQuestions || [],
+      starterResponse: savedStage?.starterResponse || '',
     };
     return stages;
   }, {} as SocraticStudioBlueprint['stages']);

@@ -19,6 +19,8 @@ export interface SocraticStageConfig {
   systemPrompt: string;
   starterPrompt: string;
   readinessPrompt: string;
+  readinessGuidance: string;
+  starterGuidance: string;
   customInstructions: string;
   readinessQuestions: string[];
   starterResponse: string;
@@ -540,6 +542,8 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS.clarify,
     starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS.clarify,
     readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS.clarify,
+    readinessGuidance: '',
+    starterGuidance: '',
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
@@ -553,6 +557,8 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS.research,
     starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS.research,
     readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS.research,
+    readinessGuidance: '',
+    starterGuidance: '',
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
@@ -566,6 +572,8 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS.build,
     starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS.build,
     readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS.build,
+    readinessGuidance: '',
+    starterGuidance: '',
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
@@ -579,6 +587,8 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS.write,
     starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS.write,
     readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS.write,
+    readinessGuidance: '',
+    starterGuidance: '',
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',

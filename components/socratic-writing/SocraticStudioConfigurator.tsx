@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 import {
   BookOpen,
   Bot,
@@ -81,7 +81,7 @@ const promptHelp = {
   chatResponseInstructions:
     'Added to normal student chat turns after the student message. Use this to control answer style, length, formatting, and whether Claude must end with a question.',
   readinessGenerationSystemPrompt:
-    'Used when the educator clicks Generate Readiness Goals. It tells Claude what kind of hidden goals to create for each stage.',
+    'Used when the educator clicks Generate Goals & Student Messages. It tells Claude what kind of hidden goals to create before opening messages are generated.',
   readinessGenerationUserPrompt:
     'The exact task sent to Claude for readiness generation. Keep the JSON shape if you want the app to parse the response reliably.',
   starterResponseInstructions:
@@ -157,6 +157,15 @@ export default function SocraticStudioConfigurator({
           });
         }
         return signatures;
+      }, {} as Partial<Record<SocraticStageKey, string>>),
+  );
+  const [starterResponseSnapshots, setStarterResponseSnapshots] = useState<Partial<Record<SocraticStageKey, string>>>(
+    () =>
+      SOCRATIC_STAGE_ORDER.reduce((snapshots, stage) => {
+        if (blueprint.stages[stage].starterResponse?.trim()) {
+          snapshots[stage] = blueprint.stages[stage].starterResponse;
+        }
+        return snapshots;
       }, {} as Partial<Record<SocraticStageKey, string>>),
   );
 
@@ -385,6 +394,30 @@ export default function SocraticStudioConfigurator({
       starterGuidance: getStarterGuidance(blueprint.stages[stage]),
       readinessQuestions: blueprint.stages[stage].readinessQuestions || [],
     });
+
+  useEffect(() => {
+    let didChange = false;
+    const nextSnapshots = { ...starterResponseSnapshots };
+    const nextSignatures = { ...starterSourceSignatures };
+
+    SOCRATIC_STAGE_ORDER.forEach((stage) => {
+      const response = blueprint.stages[stage].starterResponse || '';
+      if (response.trim() && response !== starterResponseSnapshots[stage]) {
+        nextSnapshots[stage] = response;
+        nextSignatures[stage] = getStageSignature(stage);
+        didChange = true;
+      } else if (!response.trim() && starterResponseSnapshots[stage]) {
+        delete nextSnapshots[stage];
+        delete nextSignatures[stage];
+        didChange = true;
+      }
+    });
+
+    if (didChange) {
+      setStarterResponseSnapshots(nextSnapshots);
+      setStarterSourceSignatures(nextSignatures);
+    }
+  }, [blueprint]);
 
   return (
     <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
@@ -810,8 +843,8 @@ export default function SocraticStudioConfigurator({
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Stage Policies & Student Messages</h3>
             <p className="text-sm text-gray-600">
-              Default prompts are locked. Generate editable hidden readiness goals, add assignment-specific
-              guidance, then generate the first Claude message students will see in each stage.
+              Default prompts are locked. Generate editable hidden readiness goals and the first Claude
+              message students will see in each stage with one click.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -822,7 +855,7 @@ export default function SocraticStudioConfigurator({
               className="inline-flex items-center gap-2 rounded-lg border border-brand-maroon px-3 py-2 text-sm font-medium text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Sparkles className="w-4 h-4" />
-              {generatingReadinessQuestions ? 'Generating...' : 'Generate Readiness Goals'}
+              {generatingReadinessQuestions ? 'Generating goals & messages...' : 'Generate Goals & Student Messages'}
             </button>
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
               <Sparkles className="w-3.5 h-3.5" />
@@ -901,123 +934,21 @@ export default function SocraticStudioConfigurator({
               </div>
 
               <div className="border-t border-gray-100 bg-gray-50/40 p-5">
-                <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-gray-200 bg-white p-4">
-                      <div className="mb-3 flex items-start gap-3">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-xs font-semibold text-white">
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-700 text-xs font-semibold text-white">
                           1
                         </div>
                         <div>
-                          <h5 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                            Hidden readiness guidance
-                            <PromptHelp text={promptHelp.readinessGuidance} />
-                          </h5>
+                          <h5 className="text-sm font-semibold text-gray-900">Hidden readiness goals</h5>
                           <p className="text-xs text-gray-500">
-                            Used when Claude regenerates the hidden goals for this stage.
+                            Claude uses these private goals to decide when the student is ready to move forward.
                           </p>
                         </div>
                       </div>
-                      <Textarea
-                        value={getReadinessGuidance(stageConfig)}
-                        onChange={(event) => updateStage(stage, {
-                          readinessGuidance: event.target.value,
-                          customInstructions: event.target.value,
-                        })}
-                        rows={5}
-                        placeholder={`Example: Make sure students can connect the assignment question to the most important source concepts before moving on.`}
-                        className="resize-none"
-                      />
-                      <details className="mt-3 rounded-lg border border-gray-200 bg-gray-50">
-                        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
-                          Edit actual {stageConfig.label} backend prompts
-                        </summary>
-                        <div className="space-y-4 border-t border-gray-200 p-3">
-                          <div>
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
-                                Stage Runtime Chat Prompt
-                                <PromptHelp text={promptHelp.stageRuntimePrompt} />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => updateStage(stage, { systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS[stage] })}
-                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                Reset
-                              </button>
-                            </div>
-                            <Textarea
-                              value={stageConfig.systemPrompt}
-                              onChange={(event) => updateStage(stage, { systemPrompt: event.target.value })}
-                              rows={8}
-                              className="resize-y bg-white text-xs leading-relaxed"
-                            />
-                          </div>
-
-                          <div>
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
-                                Stage Student Message Generation Prompt
-                                <PromptHelp text={promptHelp.stageStarterPrompt} />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => updateStage(stage, { starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS[stage] })}
-                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                Reset
-                              </button>
-                            </div>
-                            <Textarea
-                              value={stageConfig.starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage]}
-                              onChange={(event) => updateStage(stage, { starterPrompt: event.target.value })}
-                              rows={8}
-                              className="resize-y bg-white text-xs leading-relaxed"
-                            />
-                          </div>
-
-                          <div>
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
-                                Hidden Readiness Goal Generation Prompt
-                                <PromptHelp text={promptHelp.stageReadinessPrompt} />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => updateStage(stage, { readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS[stage] })}
-                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                              >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                Reset
-                              </button>
-                            </div>
-                            <Textarea
-                              value={stageConfig.readinessPrompt || DEFAULT_STAGE_READINESS_PROMPTS[stage]}
-                              onChange={(event) => updateStage(stage, { readinessPrompt: event.target.value })}
-                              rows={8}
-                              className="resize-y bg-white text-xs leading-relaxed"
-                            />
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-700 text-xs font-semibold text-white">
-                            2
-                          </div>
-                          <div>
-                            <h5 className="text-sm font-semibold text-gray-900">Hidden readiness goals</h5>
-                            <p className="text-xs text-gray-600">
-                              Students do not see these. Claude guides toward them naturally and suggests the next stage only when ready.
-                            </p>
-                          </div>
-                        </div>
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => addReadinessQuestion(stage)}
@@ -1036,45 +967,138 @@ export default function SocraticStudioConfigurator({
                           {isGeneratingReadiness ? 'Regenerating...' : readinessMayBeStale ? 'Regenerate Stale Goals' : 'Regenerate Goals'}
                         </button>
                       </div>
-
-                      {(stageConfig.readinessQuestions || []).length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-blue-200 bg-white p-4 text-sm text-gray-500">
-                          Generate readiness goals above, or add your own goals for this stage.
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {(stageConfig.readinessQuestions || []).map((question, index) => (
-                            <div key={`${stage}-readiness-${index}`} className="flex gap-2">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-white text-sm font-semibold text-blue-700">
-                                {index + 1}
-                              </div>
-                              <Textarea
-                                rows={3}
-                                value={question}
-                                onChange={(event) => updateReadinessQuestion(stage, index, event.target.value)}
-                                placeholder={`Hidden ${stageConfig.label} readiness goal ${index + 1}`}
-                                className="min-h-[84px] resize-y bg-white leading-relaxed"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => removeReadinessQuestion(stage, index)}
-                                className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-gray-500 hover:border-red-200 hover:text-red-600"
-                                aria-label={`Remove readiness goal ${index + 1}`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
+
+                    <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-800">
+                        Guidance for readiness goals
+                        <PromptHelp text={promptHelp.readinessGuidance} />
+                      </label>
+                      <Textarea
+                        value={getReadinessGuidance(stageConfig)}
+                        onChange={(event) => updateStage(stage, {
+                          readinessGuidance: event.target.value,
+                          customInstructions: event.target.value,
+                        })}
+                        rows={4}
+                        placeholder={`Example: Make sure students can connect the assignment question to the most important source concepts before moving on.`}
+                        className="resize-y bg-white text-sm leading-relaxed"
+                      />
+                    </div>
+
+                    <details className="mb-4 rounded-lg border border-gray-200 bg-gray-50">
+                      <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
+                        Edit actual {stageConfig.label} backend prompts
+                      </summary>
+                      <div className="space-y-4 border-t border-gray-200 p-3">
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                              Stage Runtime Chat Prompt
+                              <PromptHelp text={promptHelp.stageRuntimePrompt} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateStage(stage, { systemPrompt: DEFAULT_STAGE_RUNTIME_PROMPTS[stage] })}
+                              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Reset
+                            </button>
+                          </div>
+                          <Textarea
+                            value={stageConfig.systemPrompt}
+                            onChange={(event) => updateStage(stage, { systemPrompt: event.target.value })}
+                            rows={8}
+                            className="resize-y bg-white text-xs leading-relaxed"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                              Stage Student Message Generation Prompt
+                              <PromptHelp text={promptHelp.stageStarterPrompt} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateStage(stage, { starterPrompt: DEFAULT_STAGE_STARTER_PROMPTS[stage] })}
+                              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Reset
+                            </button>
+                          </div>
+                          <Textarea
+                            value={stageConfig.starterPrompt || DEFAULT_STAGE_STARTER_PROMPTS[stage]}
+                            onChange={(event) => updateStage(stage, { starterPrompt: event.target.value })}
+                            rows={8}
+                            className="resize-y bg-white text-xs leading-relaxed"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                              Hidden Readiness Goal Generation Prompt
+                              <PromptHelp text={promptHelp.stageReadinessPrompt} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateStage(stage, { readinessPrompt: DEFAULT_STAGE_READINESS_PROMPTS[stage] })}
+                              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Reset
+                            </button>
+                          </div>
+                          <Textarea
+                            value={stageConfig.readinessPrompt || DEFAULT_STAGE_READINESS_PROMPTS[stage]}
+                            onChange={(event) => updateStage(stage, { readinessPrompt: event.target.value })}
+                            rows={8}
+                            className="resize-y bg-white text-xs leading-relaxed"
+                          />
+                        </div>
+                      </div>
+                    </details>
+
+                    {(stageConfig.readinessQuestions || []).length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 text-sm text-gray-500">
+                        Generate readiness goals above, or add your own goals for this stage.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {(stageConfig.readinessQuestions || []).map((question, index) => (
+                          <div key={`${stage}-readiness-${index}`} className="flex gap-2">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-sm font-semibold text-blue-700">
+                              {index + 1}
+                            </div>
+                            <Textarea
+                              rows={3}
+                              value={question}
+                              onChange={(event) => updateReadinessQuestion(stage, index, event.target.value)}
+                              placeholder={`Hidden ${stageConfig.label} readiness goal ${index + 1}`}
+                              className="min-h-[84px] resize-y bg-white leading-relaxed"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeReadinessQuestion(stage, index)}
+                              className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-gray-500 hover:border-red-200 hover:text-red-600"
+                              aria-label={`Remove readiness goal ${index + 1}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="rounded-xl border border-brand-maroon/10 bg-white p-4">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                       <div className="flex items-start gap-3">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-maroon text-xs font-semibold text-white">
-                          3
+                          2
                         </div>
                         <div>
                           <h5 className="text-sm font-semibold text-gray-900">Opening Message - {stageConfig.label}</h5>
@@ -1087,20 +1111,20 @@ export default function SocraticStudioConfigurator({
                         type="button"
                         onClick={() => void handleGenerateStarterResponse(stage)}
                         disabled={isGenerating || !hasReadinessQuestions}
-                        className="inline-flex items-center gap-2 rounded-lg border border-brand-maroon px-3 py-2 text-sm font-medium text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-2 rounded-lg border border-brand-maroon bg-white px-3 py-2 text-xs font-medium text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <Sparkles className="w-4 h-4" />
+                        <Sparkles className="w-3.5 h-3.5" />
                         {isGenerating
-                          ? 'Generating...'
+                          ? 'Regenerating...'
                           : hasStarterResponse
-                            ? 'Regenerate from goals'
-                            : 'Generate from goals'}
+                            ? 'Regenerate Message'
+                            : 'Generate Message'}
                       </button>
                     </div>
 
-                    <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
                       <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-800">
-                        Opening message guidance
+                        Guidance for opening message
                         <PromptHelp text={promptHelp.starterGuidance} />
                       </label>
                       <Textarea

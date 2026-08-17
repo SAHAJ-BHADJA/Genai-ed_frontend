@@ -764,6 +764,41 @@ export default function NewAssignmentPage() {
       questionFile,
       stageToGenerate,
     );
+    const blueprintWithGeneratedGoals: SocraticStudioBlueprint = {
+      ...currentBlueprint,
+      stages: SOCRATIC_STAGE_ORDER.reduce((nextStages, stage) => {
+        if (stageToGenerate && stage !== stageToGenerate) {
+          nextStages[stage] = currentBlueprint.stages[stage];
+          return nextStages;
+        }
+        nextStages[stage] = {
+          ...currentBlueprint.stages[stage],
+          readinessQuestions: stages[stage] || currentBlueprint.stages[stage].readinessQuestions || [],
+        };
+        return nextStages;
+      }, { ...currentBlueprint.stages }),
+    };
+
+    const generatedStarterResponses: Partial<Record<SocraticStageKey, string>> = {};
+    if (!stageToGenerate) {
+      const starterStages = SOCRATIC_STAGE_ORDER.filter((stage) =>
+        (blueprintWithGeneratedGoals.stages[stage].readinessQuestions || []).some((question) => question.trim()),
+      );
+      const starterResults = await Promise.all(
+        starterStages.map(async (stage) => {
+          const { response } = await generateSocraticStarterResponse(
+            stage,
+            blueprintWithGeneratedGoals,
+            questionFile,
+          );
+          return { stage, response };
+        }),
+      );
+      starterResults.forEach(({ stage, response }) => {
+        generatedStarterResponses[stage] = response;
+      });
+    }
+
     setStudioBlueprint((current) => {
       if (!current) return current;
       return {
@@ -776,6 +811,7 @@ export default function NewAssignmentPage() {
           nextStages[stage] = {
             ...current.stages[stage],
             readinessQuestions: stages[stage] || current.stages[stage].readinessQuestions || [],
+            starterResponse: generatedStarterResponses[stage] || current.stages[stage].starterResponse,
           };
           return nextStages;
         }, { ...current.stages }),
@@ -784,7 +820,7 @@ export default function NewAssignmentPage() {
     toast.success(
       stageToGenerate
         ? `${currentBlueprint.stages[stageToGenerate].label} readiness goals regenerated.`
-        : 'Readiness questions generated for all Socratic stages.',
+        : 'Readiness goals and student messages generated for all Socratic stages.',
     );
   };
 

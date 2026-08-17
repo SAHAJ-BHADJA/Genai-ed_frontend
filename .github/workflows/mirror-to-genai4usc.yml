@@ -15,6 +15,9 @@ jobs:
     name: Push main to genai4usc
     runs-on: ubuntu-latest
     if: github.repository == 'SAHAJ-BHADJA/Genai-ed_frontend'
+    env:
+      TARGET_REPOSITORY: genai4usc-cloud/Frontend_Genai-ed
+      TARGET_BRANCH: main
     steps:
       - name: Checkout source repository
         uses: actions/checkout@v4
@@ -22,10 +25,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Push to genai4usc mirror
+      - name: Verify mirror token access
         env:
           MIRROR_TOKEN: ${{ secrets.GENAI4USC_MIRROR_TOKEN }}
         run: |
+          set -euo pipefail
+
           MIRROR_TOKEN="$(printf '%s' "$MIRROR_TOKEN" | tr -d '\r\n[:space:]')"
 
           if [ -z "$MIRROR_TOKEN" ]; then
@@ -33,6 +38,40 @@ jobs:
             exit 1
           fi
 
-          git config --global credential.helper store
-          printf 'https://x-access-token:%s@github.com\n' "$MIRROR_TOKEN" > ~/.git-credentials
-          git push "https://github.com/genai4usc-cloud/Frontend_Genai-ed.git" HEAD:main
+          status="$(curl -sS -o /tmp/mirror-repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${MIRROR_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${TARGET_REPOSITORY}")"
+
+          if [ "$status" != "200" ]; then
+            echo "GENAI4USC_MIRROR_TOKEN cannot access ${TARGET_REPOSITORY}. GitHub API returned HTTP ${status}." >&2
+            echo "Create or update the token with resource owner genai4usc-cloud, repository access to Frontend_Genai-ed, and Contents read/write permission." >&2
+            cat /tmp/mirror-repo.json >&2
+            exit 1
+          fi
+
+          echo "Mirror token can access ${TARGET_REPOSITORY}."
+
+      - name: Push to genai4usc mirror
+        env:
+          MIRROR_TOKEN: ${{ secrets.GENAI4USC_MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          MIRROR_TOKEN="$(printf '%s' "$MIRROR_TOKEN" | tr -d '\r\n[:space:]')"
+
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "Missing GENAI4USC_MIRROR_TOKEN repository secret." >&2
+            exit 1
+          fi
+
+          git config user.name "mirror-bot"
+          git config user.email "mirror-bot@users.noreply.github.com"
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 -w 0)"
+          TARGET_URL="https://github.com/${TARGET_REPOSITORY}.git"
+
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+            ls-remote --exit-code "$TARGET_URL" "refs/heads/${TARGET_BRANCH}" >/dev/null
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+            push "$TARGET_URL" "HEAD:${TARGET_BRANCH}"

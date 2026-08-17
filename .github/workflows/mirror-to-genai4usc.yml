@@ -18,6 +18,8 @@ jobs:
     env:
       TARGET_REPOSITORY: genai4usc-cloud/Frontend_Genai-ed
       TARGET_BRANCH: main
+      MIRROR_AUTHOR_NAME: genai4usc-cloud
+      MIRROR_AUTHOR_EMAIL: genai4usc-cloud@users.noreply.github.com
     steps:
       - name: Checkout source repository
         uses: actions/checkout@v4
@@ -53,7 +55,7 @@ jobs:
 
           echo "Mirror token can access ${TARGET_REPOSITORY}."
 
-      - name: Push to genai4usc mirror
+      - name: Push rewritten genai4usc-authored mirror commit
         env:
           MIRROR_TOKEN: ${{ secrets.GENAI4USC_MIRROR_TOKEN }}
         run: |
@@ -66,12 +68,32 @@ jobs:
             exit 1
           fi
 
-          git config user.name "mirror-bot"
-          git config user.email "mirror-bot@users.noreply.github.com"
           AUTH_HEADER="$(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 -w 0)"
           TARGET_URL="https://github.com/${TARGET_REPOSITORY}.git"
+          TARGET_REF="refs/remotes/genai4usc/${TARGET_BRANCH}"
 
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
             ls-remote --exit-code "$TARGET_URL" "refs/heads/${TARGET_BRANCH}" >/dev/null
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
-            push "$TARGET_URL" "HEAD:${TARGET_BRANCH}"
+            fetch --depth=1 "$TARGET_URL" "${TARGET_BRANCH}:${TARGET_REF}"
+
+          SOURCE_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          SOURCE_SUBJECT="$(git log -1 --pretty=%s)"
+          SOURCE_TREE="$(git rev-parse HEAD^{tree})"
+          TARGET_HEAD="$(git rev-parse "${TARGET_REF}")"
+          MIRROR_MESSAGE="$(printf 'mirror: %s\n\nSource: SAHAJ-BHADJA/Genai-ed_frontend@%s' "$SOURCE_SUBJECT" "$SOURCE_SHA")"
+
+          git config user.name "$MIRROR_AUTHOR_NAME"
+          git config user.email "$MIRROR_AUTHOR_EMAIL"
+
+          MIRROR_COMMIT="$(
+            GIT_AUTHOR_NAME="$MIRROR_AUTHOR_NAME" \
+            GIT_AUTHOR_EMAIL="$MIRROR_AUTHOR_EMAIL" \
+            GIT_COMMITTER_NAME="$MIRROR_AUTHOR_NAME" \
+            GIT_COMMITTER_EMAIL="$MIRROR_AUTHOR_EMAIL" \
+            git commit-tree "$SOURCE_TREE" -p "$TARGET_HEAD" -m "$MIRROR_MESSAGE"
+          )"
+
+          echo "Created genai4usc-authored mirror commit ${MIRROR_COMMIT} from source ${SOURCE_SHA}."
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+            push "$TARGET_URL" "${MIRROR_COMMIT}:refs/heads/${TARGET_BRANCH}"

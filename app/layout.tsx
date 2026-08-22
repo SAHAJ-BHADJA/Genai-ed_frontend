@@ -7,6 +7,7 @@ import ModelWarmupBootstrap from '@/components/ModelWarmupBootstrap';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://app.cogitatis.ai'),
   title: 'Cogitatis AI',
   description: 'Cogitatis AI learning platform',
   icons: {

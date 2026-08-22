@@ -1860,7 +1860,7 @@ SLIDE 1: Untitled Lecture
                       <h4 className="font-semibold text-gray-900">Add Materials for Your Lecture</h4>
                       <button className="flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm">
                         <Info className="w-4 h-4" />
-                        What's the difference?
+                        What&apos;s the difference?
                       </button>
                     </div>
 
@@ -2160,7 +2160,7 @@ SLIDE 1: Untitled Lecture
                             className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent"
                           />
                           <p className="text-sm text-gray-500 mt-2">
-                            Default: "Create an engaging educational video script about the topic"
+                            Default: &quot;Create an engaging educational video script about the topic&quot;
                           </p>
                         </div>
 
@@ -2695,7 +2695,7 @@ SLIDE 1: Untitled Lecture
                 <li>This only cleans database records, not backend storage files</li>
                 <li>Generated files may remain orphaned in storage</li>
                 <li>This action cannot be undone</li>
-                <li>Recommended: Use "Clone Lecture" instead for safe regeneration</li>
+                <li>Recommended: Use &quot;Clone Lecture&quot; instead for safe regeneration</li>
               </ul>
             </div>
 

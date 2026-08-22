@@ -82,7 +82,7 @@ export default function TestKnowledge() {
             Practice quizzes and assessments are currently under development
           </p>
           <p className="text-gray-500 max-w-2xl mx-auto">
-            Soon you'll be able to test your understanding with AI-generated quizzes, practice problems, and assessments tailored to your course materials.
+            Soon you&apos;ll be able to test your understanding with AI-generated quizzes, practice problems, and assessments tailored to your course materials.
           </p>
 
           <div className="mt-8 pt-8 border-t border-gray-200">

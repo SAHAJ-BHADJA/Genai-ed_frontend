@@ -1,10 +1,11 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, LogOut, User, Bot, PenLine } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, LogOut, Bot, PenLine } from 'lucide-react';
 import { supabase, Profile, Course } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection, AddButtonItem } from './CollapsibleSidebar';
+import ProfileAccountMenu from './ProfileAccountMenu';
 
 interface EducatorLayoutProps {
   children: ReactNode;
@@ -13,7 +14,6 @@ interface EducatorLayoutProps {
 
 export default function EducatorLayout({ children, profile }: EducatorLayoutProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const [courses, setCourses] = useState<Course[]>([]);
 
   useEffect(() => {
@@ -81,11 +81,6 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
     },
   ];
 
-  const getInitials = () => {
-    if (!profile?.first_name || !profile?.last_name) return 'ED';
-    return `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase();
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-brand-maroon text-white px-6 py-4 shadow-lg">
@@ -105,17 +100,12 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
               <LogOut className="w-4 h-4" />
               Educator Workspace
             </button>
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-sm font-medium">Signed in as</div>
-                <div className="text-sm text-white/90">
-                  {profile?.first_name || 'Educator'} {profile?.last_name || ''}
-                </div>
-              </div>
-              <div className="w-10 h-10 bg-brand-yellow rounded-full flex items-center justify-center">
-                <span className="text-black font-bold text-sm">{getInitials()}</span>
-              </div>
-            </div>
+            <ProfileAccountMenu
+              profile={profile}
+              fallbackName="Educator"
+              fallbackInitials="ED"
+              onSignOut={handleSignOut}
+            />
           </div>
         </div>
       </header>
@@ -123,7 +113,6 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
       <div className="flex max-w-screen-2xl mx-auto">
         <CollapsibleSidebar
           sections={sections}
-          onSignOut={handleSignOut}
           variant="educator"
         />
 

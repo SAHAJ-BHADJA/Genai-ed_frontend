@@ -1,10 +1,11 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Chrome as Home, MessageSquare, Lightbulb, Video, ClipboardCheck, BookOpen, Library, Bot } from 'lucide-react';
 import { supabase, Profile } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection } from './CollapsibleSidebar';
+import ProfileAccountMenu from './ProfileAccountMenu';
 
 interface Course {
   id: string;
@@ -20,9 +21,7 @@ interface StudentLayoutProps {
 }
 
 export default function StudentLayout({ children, profile }: StudentLayoutProps) {
-  const pathname = usePathname();
   const router = useRouter();
-  const [coursesExpanded, setCoursesExpanded] = useState(true);
   const [courses, setCourses] = useState<Course[]>([]);
 
   useEffect(() => {
@@ -92,10 +91,6 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
     },
   ];
 
-  const getInitials = () => {
-    return `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase();
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-brand-maroon text-white px-6 py-4 shadow-lg">
@@ -115,17 +110,12 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
               <BookOpen className="w-4 h-4" />
               Student Workspace
             </button>
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-sm font-medium">Signed in as</div>
-                <div className="text-sm text-white/90">
-                  {profile.first_name} {profile.last_name}
-                </div>
-              </div>
-              <div className="w-10 h-10 bg-brand-yellow rounded-full flex items-center justify-center">
-                <span className="text-black font-bold text-sm">{getInitials()}</span>
-              </div>
-            </div>
+            <ProfileAccountMenu
+              profile={profile}
+              fallbackName="Student"
+              fallbackInitials="ST"
+              onSignOut={handleSignOut}
+            />
           </div>
         </div>
       </header>
@@ -133,7 +123,6 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
       <div className="flex max-w-screen-2xl mx-auto">
         <CollapsibleSidebar
           sections={sections}
-          onSignOut={handleSignOut}
           variant="student"
         />
 

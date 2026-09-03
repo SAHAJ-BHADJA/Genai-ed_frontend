@@ -2,7 +2,7 @@
 
 import { ReactNode, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { LucideIcon, LogOut, ChevronLeft, ChevronRight, Pin, Plus } from 'lucide-react';
+import { LucideIcon, Pin, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface NavItem {
@@ -30,13 +30,11 @@ export interface NavSection {
 
 interface CollapsibleSidebarProps {
   sections: NavSection[];
-  onSignOut?: () => void;
   variant?: 'educator' | 'student';
 }
 
 export default function CollapsibleSidebar({
   sections,
-  onSignOut,
   variant = 'educator'
 }: CollapsibleSidebarProps) {
   const router = useRouter();
@@ -239,33 +237,6 @@ export default function CollapsibleSidebar({
           </div>
         ))}
       </div>
-
-      {/* Sign Out Button */}
-      {onSignOut && (
-        <div className="border-t border-gray-200 p-2">
-          <div className="relative group">
-            <button
-              onClick={onSignOut}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-red-600 hover:bg-red-50 transition-all duration-200',
-                !isExpanded && 'justify-center'
-              )}
-            >
-              <LogOut className="w-5 h-5 flex-shrink-0" />
-              {isExpanded && (
-                <span className="font-medium text-sm truncate">Sign Out</span>
-              )}
-            </button>
-
-            {!isExpanded && (
-              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-3 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-300 pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                Sign Out
-                <div className="absolute right-full top-1/2 -translate-y-1/2 border-[6px] border-transparent border-r-gray-900" />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </aside>
   );
 }

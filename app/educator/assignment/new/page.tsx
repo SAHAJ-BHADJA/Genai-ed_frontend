@@ -780,24 +780,22 @@ export default function NewAssignmentPage() {
     };
 
     const generatedStarterResponses: Partial<Record<SocraticStageKey, string>> = {};
-    if (!stageToGenerate) {
-      const starterStages = SOCRATIC_STAGE_ORDER.filter((stage) =>
-        (blueprintWithGeneratedGoals.stages[stage].readinessQuestions || []).some((question) => question.trim()),
-      );
-      const starterResults = await Promise.all(
-        starterStages.map(async (stage) => {
-          const { response } = await generateSocraticStarterResponse(
-            stage,
-            blueprintWithGeneratedGoals,
-            questionFile,
-          );
-          return { stage, response };
-        }),
-      );
-      starterResults.forEach(({ stage, response }) => {
-        generatedStarterResponses[stage] = response;
-      });
-    }
+    const starterStages = (stageToGenerate ? [stageToGenerate] : SOCRATIC_STAGE_ORDER).filter((stage) =>
+      (blueprintWithGeneratedGoals.stages[stage].readinessQuestions || []).some((question) => question.trim()),
+    );
+    const starterResults = await Promise.all(
+      starterStages.map(async (stage) => {
+        const { response } = await generateSocraticStarterResponse(
+          stage,
+          blueprintWithGeneratedGoals,
+          questionFile,
+        );
+        return { stage, response };
+      }),
+    );
+    starterResults.forEach(({ stage, response }) => {
+      generatedStarterResponses[stage] = response;
+    });
 
     setStudioBlueprint((current) => {
       if (!current) return current;
@@ -819,7 +817,7 @@ export default function NewAssignmentPage() {
     });
     toast.success(
       stageToGenerate
-        ? `${currentBlueprint.stages[stageToGenerate].label} readiness goals regenerated.`
+        ? `${currentBlueprint.stages[stageToGenerate].label} readiness goals and student message regenerated.`
         : 'Readiness goals and student messages generated for all Socratic stages.',
     );
   };

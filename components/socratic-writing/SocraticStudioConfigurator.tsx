@@ -964,7 +964,11 @@ export default function SocraticStudioConfigurator({
                           className="inline-flex items-center gap-2 rounded-lg border border-brand-maroon bg-white px-3 py-2 text-xs font-medium text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
-                          {isGeneratingReadiness ? 'Regenerating...' : readinessMayBeStale ? 'Regenerate Stale Goals' : 'Regenerate Goals'}
+                          {isGeneratingReadiness
+                            ? 'Regenerating Goals and Opening Message...'
+                            : readinessMayBeStale
+                              ? 'Regenerate Stale Goals and Opening Message'
+                              : 'Regenerate Goals and Opening Message'}
                         </button>
                       </div>
                     </div>

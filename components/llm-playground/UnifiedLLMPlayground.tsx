@@ -12,7 +12,13 @@ import {
   GitCompareArrows,
   History,
   Loader2,
+  Maximize2,
   MessageSquare,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   Send,
   Settings2,
@@ -25,6 +31,7 @@ import EducatorLayout from '@/components/EducatorLayout';
 import StudentLayout from '@/components/StudentLayout';
 import GenerationSettings from '@/components/GenerationSettings';
 import Markdown from '@/components/Markdown';
+import { ModelOutputExpandModal } from '@/components/ModelOutputExpandModal';
 import { getBackendBase } from '@/lib/backend';
 import { supabase, type Profile } from '@/lib/supabase';
 
@@ -39,6 +46,7 @@ type ModelDefinition = {
   provider: string;
   accent: string;
   tint: string;
+  hoverTint: string;
 };
 
 type Conversation = {
@@ -127,6 +135,7 @@ const MODELS: ModelDefinition[] = [
     provider: 'OpenAI',
     accent: '#eab308',
     tint: 'bg-amber-50 border-amber-200',
+    hoverTint: 'hover:border-amber-300 hover:bg-amber-100/70',
   },
   {
     id: 'gemini-2.5-flash',
@@ -135,6 +144,7 @@ const MODELS: ModelDefinition[] = [
     provider: 'Google',
     accent: '#3b82f6',
     tint: 'bg-blue-50 border-blue-200',
+    hoverTint: 'hover:border-blue-300 hover:bg-blue-100/70',
   },
   {
     id: 'claude-opus-4.5',
@@ -143,6 +153,7 @@ const MODELS: ModelDefinition[] = [
     provider: 'Anthropic',
     accent: '#8b5cf6',
     tint: 'bg-violet-50 border-violet-200',
+    hoverTint: 'hover:border-violet-300 hover:bg-violet-100/70',
   },
 ];
 
@@ -157,6 +168,7 @@ function modelDefinition(modelId?: string | null) {
     provider: 'Model',
     accent: '#64748b',
     tint: 'bg-slate-50 border-slate-200',
+    hoverTint: 'hover:border-slate-300 hover:bg-slate-100/70',
   };
 }
 
@@ -256,6 +268,9 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [processing, setProcessing] = useState<'respond' | 'evaluate' | 'synthesize' | ''>('');
   const [error, setError] = useState('');
+  const [modelsPanelCollapsed, setModelsPanelCollapsed] = useState(false);
+  const [toolsPanelCollapsed, setToolsPanelCollapsed] = useState(false);
+  const [expandedOutput, setExpandedOutput] = useState<ModelOutput | null>(null);
 
   const config = useMemo(
     () => ({
@@ -753,6 +768,15 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
       ? `Single Response - ${modelDefinition(selectedResponseModels[0]).shortLabel}`
       : `Compare Mode - ${selectedResponseModels.length} models selected`;
 
+  const responsesFocused = modelsPanelCollapsed && toolsPanelCollapsed;
+  const workspaceGridColumns = modelsPanelCollapsed
+    ? toolsPanelCollapsed
+      ? 'xl:grid-cols-[64px_minmax(0,1fr)_64px]'
+      : 'xl:grid-cols-[64px_minmax(0,1fr)_300px] 2xl:grid-cols-[64px_minmax(0,1fr)_320px]'
+    : toolsPanelCollapsed
+      ? 'xl:grid-cols-[240px_minmax(0,1fr)_64px] 2xl:grid-cols-[260px_minmax(0,1fr)_64px]'
+      : 'xl:grid-cols-[240px_minmax(0,1fr)_300px] 2xl:grid-cols-[260px_minmax(0,1fr)_320px]';
+
   const body = (
     <div className="-m-8 min-h-[calc(100vh-5rem)] bg-[#f4f5f7] p-5 lg:p-7">
       <section className="mx-auto max-w-[1680px] overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
@@ -781,9 +805,68 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           </div>
         )}
 
-        <div className="grid min-h-[720px] grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_340px]">
-          <aside className="border-b border-slate-200 bg-slate-50/80 xl:border-b-0 xl:border-r">
-            <div className="border-b border-slate-200 p-4">
+        <div
+          className={`grid min-h-[720px] grid-cols-1 transition-[grid-template-columns] duration-300 ease-out ${workspaceGridColumns}`}
+        >
+          <aside className="relative border-b border-slate-200 bg-slate-50/80 xl:border-b-0 xl:border-r">
+            {!modelsPanelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setModelsPanelCollapsed(true)}
+                title="Collapse model panel"
+                aria-label="Collapse model panel"
+                className="absolute -right-3 top-5 z-20 hidden h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition hover:border-[#a90000] hover:text-[#a90000] xl:flex"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            )}
+
+            {modelsPanelCollapsed && (
+              <div className="hidden h-full min-h-[720px] flex-col items-center gap-3 py-4 xl:flex">
+                <button
+                  type="button"
+                  onClick={() => setModelsPanelCollapsed(false)}
+                  title="Expand model panel"
+                  aria-label="Expand model panel"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-[#a90000] hover:bg-red-50 hover:text-[#a90000]"
+                >
+                  <PanelLeftOpen className="h-4 w-4" />
+                </button>
+                <div className="h-px w-8 bg-slate-200" />
+                <button
+                  type="button"
+                  onClick={() => void createConversation()}
+                  title="New chat"
+                  aria-label="New chat"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#a90000] text-white transition hover:bg-[#850000]"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModelsPanelCollapsed(false)}
+                  title={`${selectedResponseModels.length} response models selected`}
+                  aria-label="Expand response model selection"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-[#a90000]"
+                >
+                  <Bot className="h-5 w-5" />
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ffcc00] px-1 text-[9px] font-bold text-slate-900">
+                    {selectedResponseModels.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModelsPanelCollapsed(false)}
+                  title="Conversation history"
+                  aria-label="Expand conversation history"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-[#a90000]"
+                >
+                  <History className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+
+            <div className={`border-b border-slate-200 p-4 ${modelsPanelCollapsed ? 'xl:hidden' : ''}`}>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -825,7 +908,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               </div>
             </div>
 
-            <div className="p-4">
+            <div className={`p-4 ${modelsPanelCollapsed ? 'xl:hidden' : ''}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-semibold text-slate-900">Response Models</h2>
@@ -877,7 +960,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           </aside>
 
           <main className="flex min-w-0 flex-col bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
               <div className="min-w-0">
                 <p className="truncate font-semibold text-slate-900">
                   {detail?.conversation.title || 'New chat'}
@@ -886,14 +969,30 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                   {responseRuns.length} response {responseRuns.length === 1 ? 'turn' : 'turns'} saved
                 </p>
               </div>
-              {selectedTarget && (
-                <span className="hidden rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 md:inline">
-                  Turn selected for tools
-                </span>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedTarget && (
+                  <span className="hidden rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 2xl:inline">
+                    Turn selected for tools
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const collapsePanels = !responsesFocused;
+                    setModelsPanelCollapsed(collapsePanels);
+                    setToolsPanelCollapsed(collapsePanels);
+                  }}
+                  aria-pressed={responsesFocused}
+                  title={responsesFocused ? 'Restore side panels' : 'Focus on responses'}
+                  className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-[#a90000] hover:text-[#a90000] xl:inline-flex"
+                >
+                  {responsesFocused ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  {responsesFocused ? 'Show panels' : 'Focus responses'}
+                </button>
+              </div>
             </div>
 
-            <div className="h-[620px] overflow-y-auto bg-[radial-gradient(circle_at_top,#f8fafc_0,white_42%)] px-4 py-6 md:px-7">
+            <div className="h-[620px] overflow-y-auto bg-[radial-gradient(circle_at_top,#f8fafc_0,white_42%)] px-3 py-6 sm:px-4 2xl:px-5">
               {loadingConversation ? (
                 <div className="flex h-full items-center justify-center text-slate-500">
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -919,14 +1018,14 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                     return (
                       <article
                         key={run.id}
-                        className={`rounded-3xl border p-3 transition md:p-5 ${
+                        className={`rounded-3xl border p-3 transition 2xl:p-4 ${
                           selected ? 'border-amber-300 bg-amber-50/35' : 'border-transparent'
                         }`}
                       >
                         <button
                           type="button"
                           onClick={() => setSelectedTargetRunId(run.id)}
-                          className="ml-auto flex max-w-[88%] items-start gap-3 text-left"
+                          className="ml-auto flex w-fit max-w-3xl items-start gap-3 text-left"
                         >
                           <div className="rounded-2xl rounded-tr-sm bg-[#a90000] px-4 py-3 text-sm leading-6 text-white shadow-sm">
                             {run.prompt}
@@ -936,30 +1035,63 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                           </span>
                         </button>
 
-                        <div className={`mt-4 grid gap-3 ${run.outputs.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+                        <div
+                          className={`mt-4 grid items-start gap-3 ${
+                            run.outputs.length === 1
+                              ? 'mx-auto max-w-3xl grid-cols-1'
+                              : run.outputs.length === 2
+                                ? 'md:grid-cols-2'
+                                : 'lg:grid-cols-3'
+                          }`}
+                        >
                           {run.outputs.map((output) => {
                             const model = modelDefinition(output.modelId);
                             const outputStreaming = run.status === 'running' && output.latencyMs === 0 && !output.error;
                             return (
-                              <div key={output.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${model.tint}`}>
+                              <div
+                                key={output.id}
+                                role="button"
+                                tabIndex={0}
+                                aria-haspopup="dialog"
+                                aria-label={`Open the full ${model.shortLabel} response`}
+                                title="Click to read the full response"
+                                onClick={(event) => {
+                                  const target = event.target as HTMLElement;
+                                  if (target.closest('a, button, input, textarea, select')) return;
+                                  setExpandedOutput(output);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.target !== event.currentTarget) return;
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    setExpandedOutput(output);
+                                  }
+                                }}
+                                className={`group min-w-0 cursor-zoom-in rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#a90000]/30 focus:ring-offset-2 ${model.tint} ${model.hoverTint}`}
+                              >
                                 <div className="mb-3 flex items-center justify-between gap-3 border-b border-black/5 pb-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: model.accent }} />
-                                    <span className="text-sm font-semibold text-slate-900">{model.shortLabel}</span>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: model.accent }} />
+                                    <span className="truncate text-sm font-semibold text-slate-900">{model.shortLabel}</span>
                                   </div>
-                                  <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                                    {outputStreaming ? (
-                                      <>
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                        Streaming
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Clock3 className="h-3 w-3" />
-                                        {(output.latencyMs / 1000).toFixed(1)}s
-                                      </>
-                                    )}
-                                  </span>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                      {outputStreaming ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                          Streaming
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Clock3 className="h-3 w-3" />
+                                          {(output.latencyMs / 1000).toFixed(1)}s
+                                        </>
+                                      )}
+                                    </span>
+                                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/80 text-slate-400 opacity-60 transition group-hover:text-[#a90000] group-hover:opacity-100 group-focus:text-[#a90000] group-focus:opacity-100">
+                                      <Maximize2 className="h-3.5 w-3.5" />
+                                    </span>
+                                  </div>
                                 </div>
                                 {output.error ? (
                                   <p className="text-sm text-red-700">{output.error}</p>
@@ -1026,8 +1158,62 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
             </div>
           </main>
 
-          <aside className="border-t border-slate-200 bg-slate-50/70 xl:border-l xl:border-t-0">
-            <div className="border-b border-slate-200 p-4">
+          <aside className="relative border-t border-slate-200 bg-slate-50/70 xl:border-l xl:border-t-0">
+            {!toolsPanelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setToolsPanelCollapsed(true)}
+                title="Collapse tools panel"
+                aria-label="Collapse tools panel"
+                className="absolute -left-3 top-5 z-20 hidden h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition hover:border-[#a90000] hover:text-[#a90000] xl:flex"
+              >
+                <PanelRightClose className="h-3.5 w-3.5" />
+              </button>
+            )}
+
+            {toolsPanelCollapsed && (
+              <div className="hidden h-full min-h-[720px] flex-col items-center gap-3 py-4 xl:flex">
+                <button
+                  type="button"
+                  onClick={() => setToolsPanelCollapsed(false)}
+                  title="Expand tools panel"
+                  aria-label="Expand tools panel"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-[#a90000] hover:bg-red-50 hover:text-[#a90000]"
+                >
+                  <PanelRightOpen className="h-4 w-4" />
+                </button>
+                <div className="h-px w-8 bg-slate-200" />
+                <button
+                  type="button"
+                  onClick={() => setToolsPanelCollapsed(false)}
+                  title="Evaluate responses"
+                  aria-label="Expand evaluation tools"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-[#a90000] transition hover:bg-white"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToolsPanelCollapsed(false)}
+                  title="Synthesize responses"
+                  aria-label="Expand synthesis tools"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-amber-600 transition hover:bg-white"
+                >
+                  <Sparkles className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToolsPanelCollapsed(false)}
+                  title="Advanced settings"
+                  aria-label="Expand advanced settings"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-[#a90000]"
+                >
+                  <Settings2 className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+
+            <div className={`border-b border-slate-200 p-4 ${toolsPanelCollapsed ? 'xl:hidden' : ''}`}>
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-[#a90000]" />
                 <div>
@@ -1080,7 +1266,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               </button>
             </div>
 
-            <div className="border-b border-slate-200 p-4">
+            <div className={`border-b border-slate-200 p-4 ${toolsPanelCollapsed ? 'xl:hidden' : ''}`}>
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-amber-600" />
                 <div>
@@ -1116,7 +1302,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               </button>
             </div>
 
-            <details className="group p-4">
+            <details className={`group p-4 ${toolsPanelCollapsed ? 'xl:hidden' : ''}`}>
               <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-slate-800">
                 <span className="flex items-center gap-2"><Settings2 className="h-4 w-4" />Advanced Settings</span>
                 <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
@@ -1137,6 +1323,16 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           </aside>
         </div>
       </section>
+
+      <ModelOutputExpandModal
+        isOpen={Boolean(expandedOutput)}
+        onClose={() => setExpandedOutput(null)}
+        modelName={modelDefinition(expandedOutput?.modelId).shortLabel}
+        modelProvider={modelDefinition(expandedOutput?.modelId).provider}
+        modelAccent={modelDefinition(expandedOutput?.modelId).accent}
+        content={expandedOutput?.text || ''}
+        latencyMs={expandedOutput?.latencyMs}
+      />
     </div>
   );
 

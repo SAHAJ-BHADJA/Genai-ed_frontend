@@ -20,6 +20,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  Search,
   Send,
   Settings2,
   ShieldCheck,
@@ -115,6 +116,16 @@ type ConversationDetail = {
 };
 
 type StreamPayload = Record<string, unknown>;
+
+class PlaygroundApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'PlaygroundApiError';
+    this.status = status;
+  }
+}
 
 type MultiJudgeAssessment = {
   targetModelId: string;
@@ -242,11 +253,28 @@ function formatDate(value?: string) {
   });
 }
 
+function formatHistoryDate(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  return isToday
+    ? date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   const router = useRouter();
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const historyMenuRef = useRef<HTMLDivElement | null>(null);
+  const conversationLoadSequenceRef = useRef(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [deletingConversationId, setDeletingConversationId] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
@@ -306,13 +334,21 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     [responseRuns, selectedTargetRunId]
   );
 
-  async function getAccessToken() {
-    let { data } = await supabase.auth.getSession();
-    if (!data.session?.access_token) {
-      const refreshed = await supabase.auth.refreshSession();
-      data = refreshed.data;
+  async function clearInvalidSession() {
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // Local auth storage may already be empty or invalid.
     }
-    if (!data.session?.access_token) throw new Error('Your session expired. Please sign in again.');
+    router.replace(`/${role}/login`);
+  }
+
+  async function getAccessToken() {
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !data.session?.access_token) {
+      await clearInvalidSession();
+      throw new Error('Your session expired. Please sign in again.');
+    }
     return data.session.access_token;
   }
 
@@ -335,7 +371,9 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
         payload = raw;
       }
     }
-    if (!response.ok) throw new Error(readableError(payload, `Request failed (${response.status}).`));
+    if (!response.ok) {
+      throw new PlaygroundApiError(readableError(payload, `Request failed (${response.status}).`), response.status);
+    }
     return payload as T;
   }
 
@@ -521,29 +559,55 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     });
   }
 
-  async function loadConversations(preferredId?: string) {
-    const result = await apiRequest<{ conversations: Conversation[] }>(`/conversations?userRole=${role}`);
-    const rows = result.conversations || [];
-    setConversations(rows);
-    const nextId = preferredId || activeConversationId || rows[0]?.id || '';
-    if (nextId) {
-      setActiveConversationId(nextId);
-      await loadConversation(nextId);
-    } else {
-      await createConversation();
+  async function loadConversationList() {
+    setHistoryLoading(true);
+    try {
+      const result = await apiRequest<{ conversations: Conversation[] }>(`/conversations?userRole=${role}`);
+      const rows = result.conversations || [];
+      setConversations(rows);
+      return rows;
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
+  function startNewChat() {
+    conversationLoadSequenceRef.current += 1;
+    setActiveConversationId('');
+    setDetail(null);
+    setSelectedTargetRunId('');
+    setExpandedOutput(null);
+    setHistoryOpen(false);
+    setHistoryQuery('');
+    setLoadingConversation(false);
+    setInput('');
+    setError('');
+  }
+
   async function loadConversation(conversationId: string) {
+    const loadSequence = conversationLoadSequenceRef.current + 1;
+    conversationLoadSequenceRef.current = loadSequence;
+    setActiveConversationId(conversationId);
+    setDetail(null);
+    setSelectedTargetRunId('');
+    setHistoryOpen(false);
     setLoadingConversation(true);
     setError('');
     try {
       const nextDetail = await apiRequest<ConversationDetail>(`/conversations/${conversationId}`);
+      if (conversationLoadSequenceRef.current !== loadSequence) return;
       applyDetail(nextDetail);
     } catch (requestError) {
+      if (conversationLoadSequenceRef.current !== loadSequence) return;
+      if (requestError instanceof PlaygroundApiError && requestError.status === 404) {
+        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+        startNewChat();
+        setError('That conversation no longer exists. A new chat is ready.');
+        return;
+      }
       setError(requestError instanceof Error ? requestError.message : 'Unable to load the conversation.');
     } finally {
-      setLoadingConversation(false);
+      if (conversationLoadSequenceRef.current === loadSequence) setLoadingConversation(false);
     }
   }
 
@@ -571,65 +635,77 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     );
   }
 
-  async function createConversation() {
-    setError('');
-    setLoadingConversation(true);
-    try {
-      const created = await apiRequest<ConversationDetail>('/conversations', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: 'New chat',
-          userRole: role,
-          activeMode: 'single',
-          activeModelId: selectedResponseModels[0],
-          settings: { ...config, responseModelIds: selectedResponseModels },
-        }),
-      });
-      applyDetail(created);
-      const result = await apiRequest<{ conversations: Conversation[] }>(`/conversations?userRole=${role}`);
-      setConversations(result.conversations || []);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to create a conversation.');
-    } finally {
-      setLoadingConversation(false);
-    }
+  async function createConversationRecord() {
+    const created = await apiRequest<ConversationDetail>('/conversations', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'New chat',
+        userRole: role,
+        activeMode: 'single',
+        activeModelId: selectedResponseModels[0],
+        settings: { ...config, responseModelIds: selectedResponseModels },
+      }),
+    });
+    applyDetail(created);
+    setConversations((current) => [
+      created.conversation,
+      ...current.filter((conversation) => conversation.id !== created.conversation.id),
+    ]);
+    return created;
   }
 
-  async function deleteConversation() {
-    if (!activeConversationId || !window.confirm('Delete this conversation and all saved model results?')) return;
+  async function deleteConversation(conversationId = activeConversationId) {
+    if (!conversationId || deletingConversationId || processing) return;
+    const conversation = conversations.find((item) => item.id === conversationId);
+    const title = conversation?.title || 'this conversation';
+    if (!window.confirm(`Delete “${title}” and all of its saved responses?`)) return;
     setError('');
+    setDeletingConversationId(conversationId);
     try {
-      await apiRequest<{ ok: boolean }>(`/conversations/${activeConversationId}`, { method: 'DELETE' });
-      setDetail(null);
-      setActiveConversationId('');
-      await loadConversations();
+      await apiRequest<{ ok: boolean }>(`/conversations/${conversationId}`, { method: 'DELETE' });
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to delete the conversation.');
+      if (!(requestError instanceof PlaygroundApiError && requestError.status === 404)) {
+        setError(requestError instanceof Error ? requestError.message : 'Unable to delete the conversation.');
+        return;
+      }
+    } finally {
+      setDeletingConversationId('');
+    }
+
+    setConversations((current) => current.filter((item) => item.id !== conversationId));
+    if (activeConversationId === conversationId) {
+      startNewChat();
     }
   }
 
   async function sendMessage() {
     const prompt = input.trim();
-    if (!prompt || !activeConversationId || processing) return;
+    if (!prompt || processing) return;
     setInput('');
     setError('');
     setProcessing('respond');
     let runStarted = false;
+    let conversationId = activeConversationId;
     try {
+      if (!conversationId) {
+        const created = await createConversationRecord();
+        conversationId = created.conversation.id;
+      }
       await streamRequest(
-        `/conversations/${activeConversationId}/respond/stream`,
+        `/conversations/${conversationId}/respond/stream`,
         { prompt, modelIds: selectedResponseModels, config },
         (event, payload) => {
           if (event === 'run_started') runStarted = true;
           handleStreamEvent(event, payload);
         }
       );
-      const result = await apiRequest<{ conversations: Conversation[] }>(`/conversations?userRole=${role}`);
-      setConversations(result.conversations || []);
+      void loadConversationList().catch(() => {
+        // The completed response remains usable even if refreshing history fails.
+      });
       requestAnimationFrame(() => timelineEndRef.current?.scrollIntoView({ behavior: 'smooth' }));
     } catch (requestError) {
       if (!runStarted) setInput(prompt);
-      if (runStarted) await loadConversation(activeConversationId);
+      if (runStarted && conversationId) await loadConversation(conversationId);
       setError(requestError instanceof Error ? requestError.message : 'The models could not answer.');
     } finally {
       setProcessing('');
@@ -724,28 +800,40 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     let active = true;
     async function authenticate() {
       try {
-        const { data: userData } = await supabase.auth.getUser();
-        const user = userData.user;
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        const user = sessionData.session?.user;
         if (!user) {
           router.replace(`/${role}/login`);
           return;
         }
-        const { data: profileData } = await supabase
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .maybeSingle();
+        if (profileError) throw profileError;
         if (!profileData || profileData.role !== role) {
           router.replace(`/${role}/login`);
           return;
         }
         if (!active) return;
         setProfile(profileData as Profile);
-        await loadConversations();
+        setAuthLoading(false);
+        void loadConversationList().catch((historyError) => {
+          if (active) {
+            setError(historyError instanceof Error ? historyError.message : 'Unable to load conversation history.');
+          }
+        });
       } catch (authError) {
-        if (active) setError(authError instanceof Error ? authError.message : 'Unable to open the playground.');
-      } finally {
-        if (active) setAuthLoading(false);
+        if (!active) return;
+        const message = authError instanceof Error ? authError.message : 'Unable to open the playground.';
+        if (/refresh token|session.*expired|invalid.*token/i.test(message)) {
+          await clearInvalidSession();
+          return;
+        }
+        setError(message);
+        setAuthLoading(false);
       }
     }
     void authenticate();
@@ -755,6 +843,22 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     // Authentication runs once per portal entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!historyMenuRef.current?.contains(event.target as Node)) setHistoryOpen(false);
+    };
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setHistoryOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [historyOpen]);
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -767,6 +871,12 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     selectedResponseModels.length === 1
       ? `Single Response - ${modelDefinition(selectedResponseModels[0]).shortLabel}`
       : `Compare Mode - ${selectedResponseModels.length} models selected`;
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const filteredConversations = historyQuery.trim()
+    ? conversations.filter((conversation) =>
+        conversation.title.toLowerCase().includes(historyQuery.trim().toLowerCase())
+      )
+    : conversations;
 
   const responsesFocused = modelsPanelCollapsed && toolsPanelCollapsed;
   const workspaceGridColumns = modelsPanelCollapsed
@@ -835,10 +945,11 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 <div className="h-px w-8 bg-slate-200" />
                 <button
                   type="button"
-                  onClick={() => void createConversation()}
+                  onClick={startNewChat}
+                  disabled={Boolean(processing)}
                   title="New chat"
                   aria-label="New chat"
-                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#a90000] text-white transition hover:bg-[#850000]"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#a90000] text-white transition hover:bg-[#850000] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -856,7 +967,10 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setModelsPanelCollapsed(false)}
+                  onClick={() => {
+                    setModelsPanelCollapsed(false);
+                    setHistoryOpen(true);
+                  }}
                   title="Conversation history"
                   aria-label="Expand conversation history"
                   className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-[#a90000]"
@@ -870,8 +984,9 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void createConversation()}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#a90000] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#850000]"
+                  onClick={startNewChat}
+                  disabled={Boolean(processing)}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#a90000] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#850000] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-4 w-4" />
                   New Chat
@@ -879,32 +994,139 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 <button
                   type="button"
                   onClick={() => void deleteConversation()}
-                  disabled={!activeConversationId}
+                  disabled={!activeConversationId || Boolean(deletingConversationId) || Boolean(processing)}
                   title="Delete conversation"
-                  className="rounded-xl border border-slate-200 bg-white px-3 text-slate-500 transition hover:border-red-200 hover:text-red-700 disabled:opacity-40"
+                  className="flex w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  {deletingConversationId === activeConversationId ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
                 </button>
               </div>
-              <label className="mt-3 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Conversation history
-              </label>
-              <div className="relative mt-2">
-                <select
-                  value={activeConversationId}
-                  onChange={(event) => {
-                    setActiveConversationId(event.target.value);
-                    void loadConversation(event.target.value);
-                  }}
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-[#a90000]"
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Conversation history
+                </span>
+                {historyLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                ) : (
+                  <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                    {conversations.length}
+                  </span>
+                )}
+              </div>
+              <div ref={historyMenuRef} className="relative mt-2">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen((current) => !current)}
+                  aria-haspopup="listbox"
+                  aria-expanded={historyOpen}
+                  className="flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm outline-none transition hover:border-slate-300 focus:border-[#a90000] focus:ring-2 focus:ring-red-100"
                 >
-                  {conversations.map((conversation) => (
-                    <option key={conversation.id} value={conversation.id}>
-                      {conversation.title}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-400" />
+                  <History className="h-4 w-4 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-800">
+                      {activeConversation?.title || 'New chat'}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                      {activeConversation
+                        ? `${activeConversation.messageCount || 0} messages · ${formatHistoryDate(activeConversation.updatedAt)}`
+                        : 'Unsaved draft'}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-slate-400 transition ${historyOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {historyOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="Saved conversations"
+                    className="absolute left-0 right-0 z-40 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+                  >
+                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Recent chats</span>
+                    </div>
+                    {conversations.length > 5 && (
+                      <div className="relative border-b border-slate-100 p-2">
+                        <Search className="pointer-events-none absolute left-4 top-4 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="search"
+                          value={historyQuery}
+                          onChange={(event) => setHistoryQuery(event.target.value)}
+                          placeholder="Search chats"
+                          aria-label="Search conversation history"
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#a90000] focus:bg-white"
+                        />
+                      </div>
+                    )}
+                    <div className="max-h-80 overflow-y-auto p-1.5">
+                      {historyLoading && conversations.length === 0 ? (
+                        <div className="space-y-2 p-2" aria-label="Loading conversation history">
+                          {[0, 1, 2].map((item) => (
+                            <div key={item} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                          ))}
+                        </div>
+                      ) : conversations.length === 0 ? (
+                        <div className="px-3 py-6 text-center">
+                          <MessageSquare className="mx-auto h-5 w-5 text-slate-300" />
+                          <p className="mt-2 text-xs font-medium text-slate-600">No saved chats yet</p>
+                          <p className="mt-1 text-[11px] leading-4 text-slate-400">Your first message will save this draft.</p>
+                        </div>
+                      ) : filteredConversations.length === 0 ? (
+                        <div className="px-3 py-6 text-center">
+                          <Search className="mx-auto h-5 w-5 text-slate-300" />
+                          <p className="mt-2 text-xs font-medium text-slate-600">No matching chats</p>
+                          <p className="mt-1 text-[11px] leading-4 text-slate-400">Try a different title.</p>
+                        </div>
+                      ) : (
+                        filteredConversations.map((conversation) => {
+                          const active = conversation.id === activeConversationId;
+                          const deleting = deletingConversationId === conversation.id;
+                          return (
+                            <div
+                              key={conversation.id}
+                              className={`group flex items-center rounded-lg transition ${
+                                active ? 'bg-red-50' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                onClick={() => void loadConversation(conversation.id)}
+                                disabled={Boolean(processing) || Boolean(deletingConversationId)}
+                                className="min-w-0 flex-1 px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <span className={`block truncate text-xs font-semibold ${active ? 'text-[#850000]' : 'text-slate-700'}`}>
+                                  {conversation.title}
+                                </span>
+                                <span className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-400">
+                                  <span>{conversation.messageCount || 0} messages</span>
+                                  <span aria-hidden="true">•</span>
+                                  <span>{formatHistoryDate(conversation.updatedAt)}</span>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deleteConversation(conversation.id)}
+                                disabled={Boolean(deletingConversationId) || Boolean(processing)}
+                                title={`Delete ${conversation.title}`}
+                                aria-label={`Delete ${conversation.title}`}
+                                className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 opacity-0 transition hover:bg-red-100 hover:text-red-700 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100"
+                              >
+                                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1336,11 +1558,32 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     </div>
   );
 
-  if (authLoading || !profile) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         Loading LLM Playground...
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm">
+          <AlertCircle className="mx-auto h-8 w-8 text-[#a90000]" />
+          <h1 className="mt-4 text-lg font-semibold text-slate-900">Unable to open the playground</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            {error || 'Your account session could not be verified.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => router.replace(`/${role}/login`)}
+            className="mt-5 rounded-xl bg-[#a90000] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#850000]"
+          >
+            Return to sign in
+          </button>
+        </div>
       </div>
     );
   }

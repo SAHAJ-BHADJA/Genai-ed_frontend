@@ -289,3 +289,28 @@ html {
 .socratic-chat-markdown .markdown-content p:last-child {
   @apply mb-0;
 }
+
+.model-picker-scroll {
+  scrollbar-color: #94a3b8 transparent;
+  scrollbar-width: thin;
+}
+
+.model-picker-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.model-picker-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.model-picker-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #94a3b8;
+  background-clip: padding-box;
+}
+
+.model-picker-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+  background-clip: padding-box;
+}

@@ -6,7 +6,6 @@ import {
   AlertCircle,
   Bot,
   BrainCircuit,
-  Check,
   ChevronDown,
   Clock3,
   GitCompareArrows,
@@ -150,6 +149,24 @@ const MODELS: ModelDefinition[] = [
     hoverTint: 'hover:border-amber-300 hover:bg-amber-100/70',
   },
   {
+    id: 'gpt-5.6-terra',
+    label: 'OpenAI GPT-5.6 Terra',
+    shortLabel: 'GPT-5.6 Terra',
+    provider: 'Azure OpenAI',
+    accent: '#0f766e',
+    tint: 'bg-teal-50 border-teal-200',
+    hoverTint: 'hover:border-teal-300 hover:bg-teal-100/70',
+  },
+  {
+    id: 'gpt-5.6-luna',
+    label: 'OpenAI GPT-5.6 Luna',
+    shortLabel: 'GPT-5.6 Luna',
+    provider: 'Azure OpenAI',
+    accent: '#f97316',
+    tint: 'bg-orange-50 border-orange-200',
+    hoverTint: 'hover:border-orange-300 hover:bg-orange-100/70',
+  },
+  {
     id: 'gemini-2.5-flash',
     label: 'Google Gemini 2.5 Flash',
     shortLabel: 'Gemini 2.5 Flash',
@@ -157,6 +174,24 @@ const MODELS: ModelDefinition[] = [
     accent: '#3b82f6',
     tint: 'bg-blue-50 border-blue-200',
     hoverTint: 'hover:border-blue-300 hover:bg-blue-100/70',
+  },
+  {
+    id: 'gemini-3.8-flash',
+    label: 'Google Gemini 3.8 Flash',
+    shortLabel: 'Gemini 3.8 Flash',
+    provider: 'Google',
+    accent: '#2563eb',
+    tint: 'bg-blue-50 border-blue-200',
+    hoverTint: 'hover:border-blue-300 hover:bg-blue-100/70',
+  },
+  {
+    id: 'gemini-3.5-flash-lite',
+    label: 'Google Gemini 3.5 Flash-Lite',
+    shortLabel: 'Gemini 3.5 Flash-Lite',
+    provider: 'Google',
+    accent: '#0891b2',
+    tint: 'bg-cyan-50 border-cyan-200',
+    hoverTint: 'hover:border-cyan-300 hover:bg-cyan-100/70',
   },
   {
     id: 'claude-opus-4.5',
@@ -167,7 +202,29 @@ const MODELS: ModelDefinition[] = [
     tint: 'bg-violet-50 border-violet-200',
     hoverTint: 'hover:border-violet-300 hover:bg-violet-100/70',
   },
+  {
+    id: 'claude-sonnet-5',
+    label: 'Claude Sonnet 5',
+    shortLabel: 'Sonnet 5',
+    provider: 'Anthropic',
+    accent: '#d97706',
+    tint: 'bg-amber-50 border-amber-200',
+    hoverTint: 'hover:border-amber-300 hover:bg-amber-100/70',
+  },
+  {
+    id: 'claude-haiku-4.5',
+    label: 'Claude Haiku 4.5',
+    shortLabel: 'Haiku 4.5',
+    provider: 'Anthropic',
+    accent: '#db2777',
+    tint: 'bg-pink-50 border-pink-200',
+    hoverTint: 'hover:border-pink-300 hover:bg-pink-100/70',
+  },
 ];
+
+const DEFAULT_AVAILABLE_MODEL_IDS = MODELS
+  .filter((model) => model.id !== 'gpt-5.6-terra' && model.id !== 'gpt-5.6-luna')
+  .map((model) => model.id);
 
 const DEFAULT_SYNTHESIS_PROMPT =
   'Analyze the selected responses and synthesize one comprehensive, accurate answer. Highlight consensus, preserve useful differences, and resolve conflicts using the strongest supported reasoning.';
@@ -321,6 +378,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
+  const [availableModelIds, setAvailableModelIds] = useState<string[]>(DEFAULT_AVAILABLE_MODEL_IDS);
   const [selectedResponseModels, setSelectedResponseModels] = useState<string[]>(['claude-opus-4.5']);
   const [selectedTargetRunId, setSelectedTargetRunId] = useState('');
   const [judgeMode, setJudgeMode] = useState<JudgeMode>('multi');
@@ -375,6 +433,20 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   const selectedTarget = useMemo(
     () => responseRuns.find((run) => run.id === selectedTargetRunId) || null,
     [responseRuns, selectedTargetRunId]
+  );
+
+  const availableModels = useMemo(
+    () => MODELS.filter((model) => availableModelIds.includes(model.id)),
+    [availableModelIds]
+  );
+
+  const modelGroups = useMemo(
+    () => [
+      { label: 'OpenAI', models: availableModels.filter((model) => model.id.startsWith('gpt-')) },
+      { label: 'Google', models: availableModels.filter((model) => model.id.startsWith('gemini-')) },
+      { label: 'Anthropic', models: availableModels.filter((model) => model.id.startsWith('claude-')) },
+    ].filter((group) => group.models.length > 0),
+    [availableModels]
   );
 
   async function clearInvalidSession() {
@@ -643,6 +715,30 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     }
   }
 
+  async function loadAvailableModels() {
+    const result = await apiRequest<{ modelIds?: string[] }>('/models');
+    const knownIds = Array.isArray(result.modelIds)
+      ? result.modelIds.filter((modelId) => MODELS.some((model) => model.id === modelId))
+      : [];
+    if (!knownIds.length) return;
+
+    setAvailableModelIds(knownIds);
+    setSelectedResponseModels((current) => {
+      const filtered = current.filter((modelId) => knownIds.includes(modelId)).slice(0, 3);
+      return filtered.length ? filtered : [knownIds[0]];
+    });
+    setJudgeModels((current) => {
+      const filtered = current.filter((modelId) => knownIds.includes(modelId));
+      const targetCount = judgeMode === 'single' ? 1 : Math.min(3, knownIds.length);
+      for (const modelId of knownIds) {
+        if (filtered.length >= targetCount) break;
+        if (!filtered.includes(modelId)) filtered.push(modelId);
+      }
+      return filtered.slice(0, targetCount);
+    });
+    setOrchestratorModelId((current) => current && knownIds.includes(current) ? current : knownIds[0]);
+  }
+
   function startNewChat() {
     conversationLoadSequenceRef.current += 1;
     setActiveConversationId('');
@@ -689,7 +785,10 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     const saved = nextDetail.conversation.settings || {};
     const savedModels = saved.responseModelIds;
     if (Array.isArray(savedModels) && savedModels.length) {
-      setSelectedResponseModels(savedModels.filter((item): item is string => typeof item === 'string').slice(0, 3));
+      const enabledSavedModels = savedModels
+        .filter((item): item is string => typeof item === 'string' && availableModelIds.includes(item))
+        .slice(0, 3);
+      if (enabledSavedModels.length) setSelectedResponseModels(enabledSavedModels);
     }
     if (typeof saved.temperature === 'number') setTemperature(saved.temperature);
     if (typeof saved.maxTokens === 'number') setMaxTokens(saved.maxTokens);
@@ -860,7 +959,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     setJudgeModels((current) => {
       if (mode === 'single') return [current[0] || 'claude-opus-4.5'];
       const expanded = [...current];
-      for (const model of MODELS) {
+      for (const model of availableModels) {
         if (expanded.length >= 3) break;
         if (!expanded.includes(model.id)) expanded.push(model.id);
       }
@@ -892,6 +991,9 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
         if (!active) return;
         setProfile(profileData as Profile);
         setAuthLoading(false);
+        void loadAvailableModels().catch(() => {
+          // Keep the safe default catalog if availability cannot be refreshed.
+        });
         void loadConversationList().catch((historyError) => {
           if (active) {
             setError(historyError instanceof Error ? historyError.message : 'Unable to load conversation history.');
@@ -1202,53 +1304,54 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               </div>
             </div>
 
-            <div className={`p-4 ${modelsPanelCollapsed ? 'xl:hidden' : ''}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold text-slate-900">Response Models</h2>
-                  <p className="text-xs text-slate-500">Select up to 3 for the next turn.</p>
+            <div className={`p-3 ${modelsPanelCollapsed ? 'xl:hidden' : ''}`}>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">Response Models</h2>
+                    <p className="mt-1 text-xs text-slate-400">Select up to 3 models</p>
+                  </div>
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {selectedResponseModels.length}/3
+                  </span>
                 </div>
-                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
-                  {selectedResponseModels.length}/3
-                </span>
-              </div>
-              <div className="mt-4 space-y-3">
-                {MODELS.map((model) => {
-                  const selected = selectedResponseModels.includes(model.id);
-                  return (
-                    <button
-                      type="button"
-                      key={model.id}
-                      onClick={() => toggleResponseModel(model.id)}
-                      className={`w-full rounded-2xl border p-4 text-left transition ${
-                        selected
-                          ? 'border-[#a90000] bg-red-50 shadow-sm'
-                          : 'border-transparent bg-white hover:border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span
-                            className="h-3 w-3 shrink-0 rounded-full ring-4 ring-white"
-                            style={{ backgroundColor: model.accent }}
-                          />
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-900">{model.shortLabel}</div>
-                            <div className="text-xs text-slate-500">{model.provider}</div>
-                          </div>
-                        </div>
-                        {selected && (
-                          <span className="rounded-full bg-[#a90000] p-1 text-white">
-                            <Check className="h-3 w-3" />
-                          </span>
-                        )}
+
+                <div className="model-picker-scroll max-h-[520px] overflow-y-auto px-2.5 py-3">
+                  {modelGroups.map((group, groupIndex) => (
+                    <section key={group.label} className={groupIndex === 0 ? '' : 'mt-4'}>
+                      <h3 className="px-1.5 text-xs font-medium text-slate-400">{group.label}</h3>
+                      <div className="mt-1.5 space-y-0.5">
+                        {group.models.map((model) => {
+                          const selected = selectedResponseModels.includes(model.id);
+                          return (
+                            <button
+                              type="button"
+                              key={model.id}
+                              onClick={() => toggleResponseModel(model.id)}
+                              aria-pressed={selected}
+                              title={`${selected ? 'Remove' : 'Select'} ${model.shortLabel}`}
+                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                                selected
+                                  ? 'bg-[#b50000] font-semibold text-white shadow-sm hover:bg-[#960000]'
+                                  : 'font-medium text-slate-700 hover:bg-red-50 hover:text-[#850000]'
+                              }`}
+                            >
+                              <span
+                                className={`h-2.5 w-2.5 shrink-0 rounded-full ${selected ? 'ring-2 ring-white/30' : ''}`}
+                                style={{ backgroundColor: model.accent }}
+                              />
+                              <span className="min-w-0 flex-1 truncate">{model.shortLabel}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600">
-                Change models at any time. Every selected model receives the same saved conversation context.
+                    </section>
+                  ))}
+                </div>
+
+                <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] leading-4 text-slate-500">
+                  Models share your prompts and continue from their own previous answers.
+                </div>
               </div>
             </div>
           </aside>
@@ -1557,7 +1660,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                   <span className="text-[10px] text-slate-500">Evaluator role</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {MODELS.map((model) => {
+                  {availableModels.map((model) => {
                     const selected = judgeModels.includes(model.id);
                     return (
                       <button
@@ -1601,7 +1704,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 onChange={(event) => setOrchestratorModelId(event.target.value)}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#a90000]"
               >
-                {MODELS.map((model) => (
+                {availableModels.map((model) => (
                   <option key={model.id} value={model.id}>{model.label}</option>
                 ))}
               </select>

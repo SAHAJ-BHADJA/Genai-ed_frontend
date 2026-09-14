@@ -27,6 +27,7 @@ import {
   Sparkles,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import EducatorLayout from '@/components/EducatorLayout';
 import StudentLayout from '@/components/StudentLayout';
@@ -200,6 +201,48 @@ function stringList(value: unknown) {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function normalizeModelOutput(value: unknown, fallbackRunId: string): ModelOutput | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const content = asRecord(record.content);
+  const modelId = typeof record.modelId === 'string' ? record.modelId : '';
+  if (!modelId) return null;
+  const runId = typeof record.runId === 'string' ? record.runId : fallbackRunId;
+  const text =
+    typeof record.text === 'string'
+      ? record.text
+      : typeof content?.value === 'string'
+        ? content.value
+        : '';
+  return {
+    id: typeof record.id === 'string' ? record.id : `stream-${runId}-${modelId}`,
+    runId,
+    modelId,
+    text,
+    latencyMs: typeof record.latencyMs === 'number' ? record.latencyMs : 0,
+    error: typeof record.error === 'string' ? record.error : null,
+    structured: asRecord(record.structured),
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
+  };
+}
+
+function orderedModelOutputs(run: PlaygroundRun) {
+  const modelIds = stringList(run.metadata?.modelIds);
+  if (!modelIds.length) return run.outputs;
+  const positions = new Map(modelIds.map((modelId, index) => [modelId, index]));
+  return [...run.outputs].sort(
+    (left, right) =>
+      (positions.get(left.modelId) ?? Number.MAX_SAFE_INTEGER) -
+      (positions.get(right.modelId) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function compactConversationTitle(prompt: string) {
+  const title = prompt.trim().replace(/\s+/g, ' ');
+  if (!title) return 'New chat';
+  return title.length > 60 ? `${title.slice(0, 57)}...` : title;
 }
 
 function riskLabel(score: number) {
@@ -478,17 +521,42 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           text: '',
         })),
       };
+      const isResponseRun =
+        !transient.targetRunId && (transient.mode === 'single' || transient.mode === 'compare');
       setDetail((current) =>
         current
           ? {
               ...current,
+              conversation:
+                isResponseRun && current.conversation.title === 'New chat'
+                  ? {
+                      ...current.conversation,
+                      title: compactConversationTitle(transient.prompt),
+                      messageCount: (current.conversation.messageCount || 0) + 1,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : current.conversation,
               runs: current.runs.some((item) => item.id === transient.id)
                 ? current.runs.map((item) => (item.id === transient.id ? transient : item))
                 : [...current.runs, transient],
             }
           : current
       );
-      if (!transient.targetRunId) setSelectedTargetRunId(transient.id);
+      if (isResponseRun) {
+        setSelectedTargetRunId(transient.id);
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === transient.conversationId && conversation.title === 'New chat'
+              ? {
+                  ...conversation,
+                  title: compactConversationTitle(transient.prompt),
+                  messageCount: (conversation.messageCount || 0) + 1,
+                  updatedAt: new Date().toISOString(),
+                }
+              : conversation
+          )
+        );
+      }
       requestAnimationFrame(() => timelineEndRef.current?.scrollIntoView({ behavior: 'smooth' }));
       return;
     }
@@ -515,10 +583,14 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           }
 
           if (event === 'output_done') {
-            const item = asRecord(payload.item) as unknown as ModelOutput | null;
+            const item = normalizeModelOutput(payload.item, runId);
             if (!item) return run;
             const outputs = run.outputs.some((output) => output.modelId === item.modelId)
-              ? run.outputs.map((output) => (output.modelId === item.modelId ? item : output))
+              ? run.outputs.map((output) =>
+                  output.modelId === item.modelId
+                    ? { ...item, text: item.text || output.text }
+                    : output
+                )
               : [...run.outputs, item];
             return { ...run, outputs };
           }
@@ -1237,6 +1309,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                   {responseRuns.map((run, index) => {
                     const selected = run.id === selectedTargetRunId;
                     const attachedOperations = operationsByTarget[run.id] || [];
+                    const outputs = orderedModelOutputs(run);
                     return (
                       <article
                         key={run.id}
@@ -1259,19 +1332,20 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
 
                         <div
                           className={`mt-4 grid items-start gap-3 ${
-                            run.outputs.length === 1
+                            outputs.length === 1
                               ? 'mx-auto max-w-3xl grid-cols-1'
-                              : run.outputs.length === 2
+                              : outputs.length === 2
                                 ? 'md:grid-cols-2'
                                 : 'lg:grid-cols-3'
                           }`}
                         >
-                          {run.outputs.map((output) => {
+                          {outputs.map((output) => {
                             const model = modelDefinition(output.modelId);
                             const outputStreaming = run.status === 'running' && output.latencyMs === 0 && !output.error;
+                            const previewTruncated = output.text.length > 700;
                             return (
                               <div
-                                key={output.id}
+                                key={`${run.id}-${output.modelId}`}
                                 role="button"
                                 tabIndex={0}
                                 aria-haspopup="dialog"
@@ -1322,11 +1396,26 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Waiting for {model.shortLabel}...
                                   </div>
+                                ) : !output.text ? (
+                                  <p className="py-2 text-sm text-slate-500">No response content was returned.</p>
                                 ) : (
-                                  <div>
-                                    <Markdown value={output.text} />
-                                    {outputStreaming && (
-                                      <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-current align-middle" />
+                                  <div className="min-w-0">
+                                    <div className="relative min-w-0">
+                                      <div className="max-h-[360px] min-w-0 overflow-hidden [&_.markdown-table-scroll]:overflow-hidden">
+                                        <Markdown value={output.text} />
+                                        {outputStreaming && (
+                                          <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-current align-middle" />
+                                        )}
+                                      </div>
+                                      {previewTruncated && (
+                                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white via-white/90 to-transparent" />
+                                      )}
+                                    </div>
+                                    {output.text && (
+                                      <div className="mt-3 flex items-center justify-center gap-1.5 border-t border-black/5 pt-3 text-[11px] font-semibold text-slate-500 transition group-hover:text-[#a90000]">
+                                        <Maximize2 className="h-3 w-3" />
+                                        Open full response
+                                      </div>
                                     )}
                                   </div>
                                 )}
@@ -1459,23 +1548,33 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                   Single Judge
                 </button>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {MODELS.map((model) => {
-                  const selected = judgeModels.includes(model.id);
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => toggleJudgeModel(model.id)}
-                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
-                        selected ? 'border-[#a90000] bg-red-50 text-[#850000]' : 'border-slate-200 bg-white text-slate-500'
-                      }`}
-                    >
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: model.accent }} />
-                      {model.shortLabel}
-                    </button>
-                  );
-                })}
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600">
+                    <ShieldCheck className="h-3.5 w-3.5 text-[#a90000]" />
+                    Judge models
+                  </span>
+                  <span className="text-[10px] text-slate-500">Evaluator role</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {MODELS.map((model) => {
+                    const selected = judgeModels.includes(model.id);
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => toggleJudgeModel(model.id)}
+                        title={`${model.shortLabel} will act as a judge`}
+                        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                          selected ? 'border-[#a90000] bg-red-50 text-[#850000]' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                        }`}
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: model.accent }} />
+                        {model.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <button
                 type="button"
@@ -1751,32 +1850,38 @@ function averageRisk(assessments: MultiJudgeAssessment[]) {
 }
 
 function friendlyRisk(score: number) {
-  if (score <= 25) return 'Low';
-  if (score <= 50) return 'Moderate';
-  if (score <= 75) return 'High';
+  if (score <= 24) return 'Low';
+  if (score <= 49) return 'Moderate';
+  if (score <= 74) return 'High';
   return 'Very high';
 }
 
 function confidenceFromRisk(score: number) {
-  if (score <= 25) return 'High';
-  if (score <= 50) return 'Moderate';
-  if (score <= 75) return 'Low';
+  if (score <= 24) return 'High';
+  if (score <= 49) return 'Moderate';
+  if (score <= 74) return 'Low';
   return 'Very low';
 }
 
 function assessmentStrength(score: number) {
-  if (score <= 25) return 'The response appears broadly useful, relevant, and low risk.';
-  if (score <= 50) return 'The response is useful, but some claims should be checked before relying on it.';
-  if (score <= 75) return 'The response contains useful material, but important concerns reduce its reliability.';
+  if (score <= 24) return 'The response appears broadly useful, relevant, and low risk.';
+  if (score <= 49) return 'The response is useful, but some claims should be checked before relying on it.';
+  if (score <= 74) return 'The response contains useful material, but important concerns reduce its reliability.';
   return 'The response should not be relied on without substantial review and correction.';
 }
 
 function assessmentAction(score: number, hasConcerns: boolean) {
-  if (!hasConcerns && score <= 25) return 'No significant issue was identified. A quick source check is still advisable for time-sensitive information.';
-  if (score <= 25) return 'Use the response as a starting point, and verify the specific claims highlighted below.';
-  if (score <= 50) return 'Review the highlighted claims and correct any unsupported or outdated details before using the response.';
-  if (score <= 75) return 'Verify the response against reliable sources and revise the flagged sections before using it.';
+  if (!hasConcerns && score <= 24) return 'No significant issue was identified. A quick source check is still advisable for time-sensitive information.';
+  if (score <= 24) return 'Use the response as a starting point, and verify the specific claims highlighted below.';
+  if (score <= 49) return 'Review the highlighted claims and correct any unsupported or outdated details before using the response.';
+  if (score <= 74) return 'Verify the response against reliable sources and revise the flagged sections before using it.';
   return 'Do not rely on this response as written. Confirm the underlying facts and rewrite the affected sections.';
+}
+
+function judgeAgreementFromSpread(spread: number) {
+  if (spread <= 10) return 'High';
+  if (spread <= 25) return 'Moderate';
+  return 'Low';
 }
 
 function MultiJudgeSummary({ run }: { run: PlaygroundRun }) {
@@ -1793,21 +1898,28 @@ function MultiJudgeSummary({ run }: { run: PlaygroundRun }) {
     return run.status === 'running' ? <StreamingStatus label="Waiting for the first judge summary..." /> : null;
   }
 
-  const judgeAverages = completedJudges.map((item) => ({
-    judgeId: item.judgeId,
-    score: averageRisk(item.assessments) ?? 0,
-  }));
-  const lowest = [...judgeAverages].sort((a, b) => a.score - b.score)[0];
-  const highest = [...judgeAverages].sort((a, b) => b.score - a.score)[0];
-  const spread = highest.score - lowest.score;
-  const agreement = spread <= 10 ? 'High' : spread <= 25 ? 'Moderate' : 'Low';
+  const targetIds = Array.from(new Set(assessments.map((assessment) => assessment.targetModelId)));
+  const responseSpreads = targetIds.flatMap((targetId) => {
+    const scores = completedJudges.flatMap((judge) =>
+      judge.assessments
+        .filter((assessment) => assessment.targetModelId === targetId)
+        .map((assessment) => assessment.risk_score)
+    );
+    if (scores.length < 2) return [];
+    return [{ targetId, spread: Math.max(...scores) - Math.min(...scores) }];
+  });
+  const averageSpread = responseSpreads.length
+    ? Math.round(responseSpreads.reduce((total, item) => total + item.spread, 0) / responseSpreads.length)
+    : null;
+  const widestDisagreement = [...responseSpreads].sort((left, right) => right.spread - left.spread)[0];
+  const agreement = averageSpread === null ? 'Waiting' : judgeAgreementFromSpread(averageSpread);
   const concerns = uniqueItems(assessments.flatMap((assessment) => assessment.failure_modes), 3);
   const disagreement =
-    judgeAverages.length < 2
+    averageSpread === null
       ? 'More judge results are still needed before agreement can be measured.'
-      : spread <= 10
-        ? `The judges reached similar conclusions; their average scores differ by only ${spread} points.`
-        : `${modelDefinition(highest.judgeId).shortLabel} was most cautious (${highest.score}/100), while ${modelDefinition(lowest.judgeId).shortLabel} assigned the lowest risk (${lowest.score}/100).`;
+      : averageSpread <= 10
+        ? `The judges reached similar conclusions across responses, with an average score spread of ${averageSpread} points.`
+        : `Judges differed most on the ${modelDefinition(widestDisagreement.targetId).shortLabel} response (${widestDisagreement.spread}-point spread). The average spread across responses is ${averageSpread} points.`;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1827,7 +1939,10 @@ function MultiJudgeSummary({ run }: { run: PlaygroundRun }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <SummaryMetric label="Overall confidence" value={confidenceFromRisk(average)} />
         <SummaryMetric label="Average accuracy risk" value={`${average}/100 (${friendlyRisk(average)})`} />
-        <SummaryMetric label="Judge agreement" value={agreement} />
+        <SummaryMetric
+          label="Judge score agreement"
+          value={averageSpread === null ? agreement : `${agreement} (${averageSpread}-point avg spread)`}
+        />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -2013,21 +2128,61 @@ function MultiJudgeMatrix({ run }: { run: PlaygroundRun }) {
     <div className="space-y-3">
       <MultiJudgeSummary run={run} />
       <div className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
-        <div className="border-b border-blue-100 bg-blue-50/70 px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-900">Evaluation overview by response and judge</h3>
-          <p className="mt-1 text-xs text-slate-500">Select a score to inspect potential issues, reviewed claims, and the evaluator explanation.</p>
+        <div className="border-b border-blue-100 bg-blue-50/70 px-4 py-4">
+          <h3 className="text-sm font-semibold text-slate-900">Multi-judge evaluation matrix</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Read across each row: every judge column scores the response named on the left. Lower risk is better.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-800">Rows = responses</p>
+                <p className="mt-0.5 text-xs text-amber-900">Answers produced by the selected response models</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/80 p-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 shadow-sm">
+                <ShieldCheck className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-800">Columns = judges</p>
+                <p className="mt-0.5 text-xs text-blue-900">Evaluator models checking each response for accuracy risk</p>
+              </div>
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+          <table className="w-full min-w-[820px] border-collapse text-left text-xs">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-              <th className="px-4 py-3 font-semibold">Response model</th>
+            <tr className="border-b border-slate-200 text-slate-600">
+              <th rowSpan={2} scope="col" className="w-[210px] border-r border-slate-200 bg-amber-50/60 px-4 py-3 align-middle">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-amber-800">Responses being reviewed</span>
+                <span className="mt-1 block font-normal text-slate-500">One answer per row</span>
+              </th>
+              <th colSpan={judgeIds.length} scope="colgroup" className="border-r border-slate-200 bg-blue-50/70 px-4 py-2 text-center">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-800">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Judge models · evaluator role
+                </span>
+              </th>
+              <th rowSpan={2} scope="col" className="w-[155px] bg-violet-50/70 px-4 py-3 text-center align-middle">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-violet-800">Combined judge result</span>
+                <span className="mt-1 block font-normal text-slate-500">Average + spread</span>
+              </th>
+            </tr>
+            <tr className="border-b border-slate-200 bg-blue-50/30 text-slate-600">
               {judgeIds.map((judgeId) => (
-                <th key={judgeId} className="px-3 py-3 text-center font-semibold">
-                  {modelDefinition(judgeId).shortLabel}
+                <th key={judgeId} scope="col" className="border-r border-slate-100 px-3 py-3 text-center font-semibold last:border-r-slate-200">
+                  <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-blue-700">Judge</span>
+                  <span className="inline-flex items-center justify-center gap-1.5 text-slate-800">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: modelDefinition(judgeId).accent }} />
+                    {modelDefinition(judgeId).shortLabel}
+                  </span>
                 </th>
               ))}
-              <th className="px-4 py-3 text-center font-semibold">Consensus</th>
             </tr>
           </thead>
           <tbody>
@@ -2037,30 +2192,45 @@ function MultiJudgeMatrix({ run }: { run: PlaygroundRun }) {
                 .filter((assessment): assessment is MultiJudgeAssessment => Boolean(assessment));
               const scores = rowAssessments.map((assessment) => assessment.risk_score);
               const average = scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null;
-              const range = scores.length ? `${Math.min(...scores)}-${Math.max(...scores)}` : '';
+              const spread = scores.length > 1 ? Math.max(...scores) - Math.min(...scores) : null;
+              const agreement = spread === null ? 'Need 2+ judges' : `${judgeAgreementFromSpread(spread)} agreement`;
+              const targetModel = modelDefinition(targetId);
               return (
-                <tr key={targetId} className="border-b border-slate-100 last:border-0">
-                  <th className="px-4 py-3 text-sm font-semibold text-slate-900">
-                    {modelDefinition(targetId).shortLabel}
+                <tr key={targetId} className="border-b border-slate-100 transition hover:bg-slate-50/80 last:border-0">
+                  <th scope="row" className="border-r border-slate-200 bg-amber-50/25 px-4 py-4 text-slate-900">
+                    <span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-amber-700">Response</span>
+                    <span className="mt-1.5 flex items-center gap-2 text-sm font-semibold">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: targetModel.accent }} />
+                      {targetModel.shortLabel}
+                    </span>
+                    <span className="mt-1 block pl-[18px] text-[10px] font-normal text-slate-500">{targetModel.provider} answer</span>
                   </th>
                   {judgeIds.map((judgeId) => {
                     const key = `${targetId}:${judgeId}`;
                     const assessment = cells.get(key);
+                    const isSelfReview = judgeId === targetId;
                     return (
-                      <td key={judgeId} className="px-3 py-3 text-center">
+                      <td key={judgeId} className="border-r border-slate-100 px-3 py-3 text-center last:border-r-slate-200">
                         {assessment ? (
                           <button
                             type="button"
-                            onClick={() => setSelectedCell((current) => (current === key ? '' : key))}
-                            className={`min-w-[86px] rounded-lg border px-2.5 py-2 font-semibold transition hover:-translate-y-0.5 hover:shadow-sm ${riskTone(assessment.risk_label)} ${
+                            onClick={() => setSelectedCell(key)}
+                            title={`${modelDefinition(judgeId).shortLabel} judge scored the ${targetModel.shortLabel} response${isSelfReview ? ' (self-review)' : ''}`}
+                            aria-label={`${modelDefinition(judgeId).shortLabel} judge score for ${targetModel.shortLabel}: ${assessment.risk_score} out of 100${isSelfReview ? ', self-review' : ''}`}
+                            className={`min-w-[104px] rounded-xl border px-2.5 py-2 font-semibold transition hover:-translate-y-0.5 hover:shadow-md ${riskTone(assessment.risk_label)} ${
                               selectedCell === key ? 'ring-2 ring-blue-400 ring-offset-2' : ''
                             }`}
                           >
                             <span className="block">{assessment.risk_score}/100</span>
                             <span className="mt-0.5 block text-[10px]">{assessment.risk_label}</span>
+                            {isSelfReview && (
+                              <span className="mt-1.5 block border-t border-current/15 pt-1 text-[9px] font-bold uppercase tracking-wide opacity-75">
+                                Self-review
+                              </span>
+                            )}
                           </button>
                         ) : run.status === 'running' ? (
-                          <span className="inline-flex min-w-[86px] items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-3 text-slate-400">
+                          <span className="inline-flex min-w-[104px] items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-3 text-slate-400">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             Pending
                           </span>
@@ -2070,13 +2240,15 @@ function MultiJudgeMatrix({ run }: { run: PlaygroundRun }) {
                       </td>
                     );
                   })}
-                  <td className="px-4 py-3 text-center">
+                  <td className="bg-violet-50/25 px-4 py-3 text-center">
                     {average === null ? (
                       <span className="text-slate-400">Pending</span>
                     ) : (
-                      <div className={`inline-flex min-w-[92px] flex-col rounded-lg border px-2.5 py-2 ${riskTone(riskLabel(average))}`}>
-                        <span className="font-semibold">{average}/100</span>
-                        <span className="text-[10px]">Range {range}</span>
+                      <div className={`inline-flex min-w-[124px] flex-col rounded-xl border px-3 py-2.5 ${riskTone(riskLabel(average))}`}>
+                        <span className="text-[9px] font-bold uppercase tracking-wide opacity-75">Judge average</span>
+                        <span className="mt-0.5 text-sm font-bold">{average}/100</span>
+                        <span className="mt-1 text-[10px]">{spread === null ? 'One score available' : `${spread}-point spread`}</span>
+                        <span className="text-[10px] font-semibold">{agreement}</span>
                       </div>
                     )}
                   </td>
@@ -2087,32 +2259,150 @@ function MultiJudgeMatrix({ run }: { run: PlaygroundRun }) {
           </table>
         </div>
 
-        {selectedAssessment && (
-          <div className="border-t border-blue-100 bg-slate-50/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Selected evaluation</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {modelDefinition(selectedTargetId).shortLabel} evaluated by {modelDefinition(selectedJudgeId).shortLabel}
-                </p>
-              </div>
-              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${riskTone(selectedAssessment.risk_label)}`}>
-                {friendlyRisk(selectedAssessment.risk_score)} accuracy risk, {selectedAssessment.risk_score}/100
-              </span>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <AssessmentList title="Potential issues" items={selectedAssessment.failure_modes} empty="No potential issues identified." />
-              <AssessmentList title="Claims reviewed" items={selectedAssessment.evidence} empty="No specific claims were highlighted." />
-            </div>
-            {selectedAssessment.notes && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold text-slate-700">Evaluator explanation</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{selectedAssessment.notes}</p>
-              </div>
-            )}
-            {selectedAssessment.error && <p className="mt-3 text-sm text-red-700">{selectedAssessment.error}</p>}
+        <div className="flex gap-3 border-t border-violet-100 bg-violet-50/60 px-4 py-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-violet-700" />
+          <div className="text-xs leading-5 text-violet-900">
+            <p className="font-semibold">How the combined judge result is calculated</p>
+            <p className="mt-0.5 text-violet-800">
+              For each response, the available judge risk scores are added together, divided by the number of judges, and rounded. The spread is the highest score minus the lowest. This measures judge score agreement—not agreement between the response models or a vote for the best answer.
+            </p>
+            <p className="mt-1 text-violet-700">Agreement bands: High 0–10 points, Moderate 11–25, Low 26+.</p>
           </div>
-        )}
+        </div>
+
+      </div>
+
+      {selectedAssessment && (
+        <JudgeAssessmentModal
+          assessment={selectedAssessment}
+          targetModelId={selectedTargetId}
+          judgeModelId={selectedJudgeId}
+          onClose={() => setSelectedCell('')}
+        />
+      )}
+    </div>
+  );
+}
+
+function JudgeAssessmentModal({
+  assessment,
+  targetModelId,
+  judgeModelId,
+  onClose,
+}: {
+  assessment: MultiJudgeAssessment;
+  targetModelId: string;
+  judgeModelId: string;
+  onClose: () => void;
+}) {
+  const responseModel = modelDefinition(targetModelId);
+  const judgeModel = modelDefinition(judgeModelId);
+  const isSelfReview = targetModelId === judgeModelId;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="judge-assessment-title"
+    >
+      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Selected judge score</p>
+            <h3 id="judge-assessment-title" className="mt-1 text-lg font-semibold text-slate-900">Evaluation details</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            autoFocus
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900"
+            aria-label="Close evaluation details"
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div className="grid items-stretch gap-2 sm:grid-cols-[1fr_auto_1fr]">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700">Response reviewed</p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: responseModel.accent }} />
+                <span className="text-sm font-semibold text-slate-900">{responseModel.shortLabel}</span>
+              </div>
+              <p className="mt-1 pl-[18px] text-xs text-slate-500">{responseModel.provider} answer</p>
+            </div>
+            <div className="flex items-center justify-center px-2 text-xs font-medium text-slate-400">reviewed by</div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">Judge model</p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: judgeModel.accent }} />
+                <span className="text-sm font-semibold text-slate-900">{judgeModel.shortLabel}</span>
+              </div>
+              <p className="mt-1 pl-[18px] text-xs text-slate-500">Evaluator role</p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-700">Hallucination / accuracy risk</p>
+              <p className="mt-1 text-xs text-slate-500">Higher scores indicate greater risk.</p>
+            </div>
+            <span className={`rounded-xl border px-4 py-2 text-sm font-bold ${riskTone(assessment.risk_label)}`}>
+              {assessment.risk_score}/100 · {friendlyRisk(assessment.risk_score)} risk
+            </span>
+          </div>
+
+          {isSelfReview && (
+            <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p><span className="font-semibold">Self-review:</span> this model evaluated its own response. Consider the other judges before drawing a conclusion.</p>
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <AssessmentList title="Potential issues" items={assessment.failure_modes} empty="No potential issues identified." />
+            <AssessmentList title="Claims reviewed" items={assessment.evidence} empty="No specific claims were highlighted." />
+          </div>
+
+          {assessment.notes && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold text-slate-700">Evaluator explanation</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{assessment.notes}</p>
+            </div>
+          )}
+          {assessment.error && (
+            <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{assessment.error}</p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 justify-end border-t border-slate-200 bg-slate-50 px-5 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-[#a90000] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#850000]"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

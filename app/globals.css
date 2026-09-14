@@ -185,6 +185,9 @@ html {
 /* Markdown content styles */
 .markdown-content {
   @apply whitespace-normal;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .markdown-content h1 {

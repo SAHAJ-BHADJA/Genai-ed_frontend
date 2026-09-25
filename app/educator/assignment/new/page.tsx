@@ -239,6 +239,7 @@ export default function NewAssignmentPage() {
   const [availableQuizzes, setAvailableQuizzes] = useState<ExistingLinkedOption[]>([]);
   const [availableAvatarLectures, setAvailableAvatarLectures] = useState<ExistingLinkedOption[]>([]);
   const questionFileInputRef = useRef<HTMLInputElement | null>(null);
+  const questionFilePreviewUrlRef = useRef<string | null>(null);
 
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [assignmentTitle, setAssignmentTitle] = useState('');
@@ -399,6 +400,31 @@ export default function NewAssignmentPage() {
     if (assignmentExperience !== 'socratic' || !selectedCourseId || !studioBlueprint) return;
     saveStudioDraft(selectedCourseId, studioBlueprint);
   }, [assignmentExperience, selectedCourseId, studioBlueprint]);
+
+  useEffect(() => {
+    const assignmentDocument = studioBlueprint?.assignmentDocument;
+    if (questionFile || !assignmentDocument?.url?.startsWith('blob:')) return;
+
+    let cancelled = false;
+    questionFilePreviewUrlRef.current = assignmentDocument.url;
+    void fetch(assignmentDocument.url)
+      .then((response) => {
+        if (!response.ok) throw new Error('Unable to restore the assignment PDF.');
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        setQuestionFile(new File([blob], assignmentDocument.name, { type: 'application/pdf' }));
+      })
+      .catch(() => {
+        // Blob URLs survive client-side preview navigation, but not a full browser reload.
+        // Keep the saved document metadata so the educator can replace it if needed.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [questionFile, studioBlueprint?.assignmentDocument]);
 
   const buildAssignmentSetupDraft = (): AssignmentSetupDraft => ({
     assignmentExperience,
@@ -731,17 +757,29 @@ export default function NewAssignmentPage() {
     });
   };
 
-  const buildCurrentSocraticBlueprint = (blueprint: SocraticStudioBlueprint) => ({
-    ...blueprint,
-    assignmentId: blueprint.assignmentId || `draft-${selectedCourseId || 'course'}`,
-    courseId: selectedCourseId || blueprint.courseId,
-    courseCode: selectedCourse?.course_number || blueprint.courseCode,
-    courseTitle: selectedCourse?.title || blueprint.courseTitle,
-    assignmentTitle: assignmentTitle.trim() || blueprint.assignmentTitle,
-    assignmentBrief: description.trim() || blueprint.assignmentBrief,
-    dueAt: fromDateTimeLocalValue(dueAt) || blueprint.dueAt,
-    pointsPossible: Number(pointsPossible) || blueprint.pointsPossible,
-  });
+  const buildCurrentSocraticBlueprint = (blueprint: SocraticStudioBlueprint) => {
+    if (questionFile && !questionFilePreviewUrlRef.current) {
+      questionFilePreviewUrlRef.current = URL.createObjectURL(questionFile);
+    }
+
+    return {
+      ...blueprint,
+      assignmentId: blueprint.assignmentId || `draft-${selectedCourseId || 'course'}`,
+      courseId: selectedCourseId || blueprint.courseId,
+      courseCode: selectedCourse?.course_number || blueprint.courseCode,
+      courseTitle: selectedCourse?.title || blueprint.courseTitle,
+      assignmentTitle: assignmentTitle.trim() || blueprint.assignmentTitle,
+      assignmentBrief: description.trim() || blueprint.assignmentBrief,
+      assignmentDocument: questionFile
+        ? {
+            name: questionFile.name,
+            url: questionFilePreviewUrlRef.current,
+          }
+        : blueprint.assignmentDocument,
+      dueAt: fromDateTimeLocalValue(dueAt) || blueprint.dueAt,
+      pointsPossible: Number(pointsPossible) || blueprint.pointsPossible,
+    };
+  };
 
   const handleGenerateSocraticReadinessQuestions = async (stageToGenerate?: SocraticStageKey) => {
     if (!studioBlueprint) return;
@@ -892,6 +930,7 @@ export default function NewAssignmentPage() {
       returnUrl: `${window.location.pathname}?${returnParams.toString()}`,
       createdAt: new Date().toISOString(),
     });
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${returnParams.toString()}`);
     router.push('/educator/assignment/socratic-preview');
   };
 
@@ -933,11 +972,35 @@ export default function NewAssignmentPage() {
       return;
     }
 
+    if (questionFilePreviewUrlRef.current) {
+      URL.revokeObjectURL(questionFilePreviewUrlRef.current);
+    }
+    const previewUrl = URL.createObjectURL(file);
+    questionFilePreviewUrlRef.current = previewUrl;
     setQuestionFile(file);
+    setStudioBlueprint((current) => current
+      ? {
+          ...current,
+          assignmentDocument: {
+            name: file.name,
+            url: previewUrl,
+          },
+        }
+      : current);
   };
 
   const handleRemoveQuestionFile = () => {
+    if (questionFilePreviewUrlRef.current) {
+      URL.revokeObjectURL(questionFilePreviewUrlRef.current);
+      questionFilePreviewUrlRef.current = null;
+    }
     setQuestionFile(null);
+    setStudioBlueprint((current) => current
+      ? {
+          ...current,
+          assignmentDocument: undefined,
+        }
+      : current);
     if (questionFileInputRef.current) {
       questionFileInputRef.current.value = '';
     }

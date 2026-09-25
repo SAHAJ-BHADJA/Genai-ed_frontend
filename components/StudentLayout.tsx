@@ -92,9 +92,9 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-brand-maroon text-white px-6 py-4 shadow-lg">
-        <div className="flex items-center justify-between max-w-screen-2xl mx-auto">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-gray-50">
+      <header className="max-w-full overflow-x-hidden bg-brand-maroon px-6 py-4 text-white shadow-lg">
+        <div className="mx-auto flex w-full min-w-0 max-w-screen-2xl items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
               <span className="text-brand-maroon font-bold text-sm">USC</span>
@@ -120,13 +120,13 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
         </div>
       </header>
 
-      <div className="flex max-w-screen-2xl mx-auto">
+      <div className="mx-auto flex w-full min-w-0 max-w-screen-2xl overflow-x-hidden">
         <CollapsibleSidebar
           sections={sections}
           variant="student"
         />
 
-        <main className="flex-1 p-8 transition-all duration-300">{children}</main>
+        <main className="min-w-0 max-w-full flex-1 overflow-x-hidden p-8 transition-all duration-300">{children}</main>
       </div>
     </div>
   );

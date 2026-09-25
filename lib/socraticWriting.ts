@@ -56,10 +56,14 @@ export interface SocraticStudioBlueprint {
   courseTitle: string;
   assignmentTitle: string;
   assignmentBrief: string;
+  assignmentDocument?: {
+    name: string;
+    url: string | null;
+  };
   dueAt: string;
   pointsPossible: number;
   wordCount: number;
-  model: 'Claude';
+  model: 'GPT-5.6 Sol';
   promptControls: SocraticPromptControls;
   stages: Record<SocraticStageKey, SocraticStageConfig>;
   resources: SocraticResource[];
@@ -197,7 +201,7 @@ const BLUEPRINT_KEY_PREFIX = `${STORAGE_PREFIX}:blueprint:`;
 const CREATED_RESOURCE_KEY = `${STORAGE_PREFIX}:created-resource`;
 const PREVIEW_KEY = `${STORAGE_PREFIX}:educator-preview`;
 
-export const DEFAULT_SOCRATIC_GLOBAL_PROMPT = `You are Claude inside a Socratic Writing Studio. Your role is to help the student understand the assignment, use the provided materials well, and improve their own thinking without doing the assignment for them.
+export const DEFAULT_SOCRATIC_GLOBAL_PROMPT = `You are GPT-5.6 Sol inside a Socratic Writing Studio. Your role is to help the student understand the assignment, use the provided materials well, and improve their own thinking without doing the assignment for them.
 
 GLOBAL RULES
 - Start by being useful. If the student asks what the assignment is about, what to do next, or what a source means, answer directly and clearly before asking follow-up questions.
@@ -218,7 +222,7 @@ export const DEFAULT_CHAT_RESPONSE_INSTRUCTIONS =
   'Respond helpfully, stay aligned to the current stage, and do not write essay-ready prose for the student. Use natural chat formatting only: plain paragraphs, no markdown headings, no bold markers, no emojis. End with one natural follow-up question.';
 
 export const DEFAULT_READINESS_GENERATION_SYSTEM_PROMPT =
-  'You are helping an educator configure Socratic Writing Studio. Generate hidden readiness questions for Claude, not questions shown directly to students. Each question should describe an understanding the student should demonstrate in conversation before Claude merely suggests that moving to the next stage would make sense.';
+  'You are helping an educator configure Socratic Writing Studio. Generate hidden readiness questions for the AI tutor, not questions shown directly to students. Each question should describe an understanding the student should demonstrate in conversation before the AI tutor merely suggests that moving to the next stage would make sense.';
 
 export const DEFAULT_READINESS_GENERATION_USER_PROMPT =
   'Return strict JSON only, with exactly these keys: clarify, research, build, write. Each key must contain exactly 3 concise educator-editable readiness questions. Make them specific to this assignment and its materials. Do not include markdown, commentary, or code fences.\n\nRequired JSON shape:\n{"clarify":["...","...","..."],"research":["...","...","..."],"build":["...","...","..."],"write":["...","...","..."]}';
@@ -513,24 +517,47 @@ DEFAULT_STAGE_RUNTIME_PROMPTS.write = writeRuntimePrompt.trim() || DEFAULT_STAGE
 export const DEFAULT_STAGE_READINESS_PROMPTS: Record<SocraticStageKey, string> = {
   clarify: `Generate hidden readiness goals for the Clarify stage.
 
-The goals should help Claude recognize whether the student can explain the assignment task, define important terms, identify constraints, and describe what a strong response needs to accomplish.
+The goals should help the AI tutor recognize whether the student can explain the assignment task, define important terms, identify constraints, and describe what a strong response needs to accomplish.
 
-Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that Claude should ask verbatim.`,
+Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that the AI tutor should ask verbatim.`,
   research: `Generate hidden readiness goals for the Research stage.
 
-The goals should help Claude recognize whether the student understands the available sources, can identify useful evidence, can compare source ideas, and can notice gaps or tensions in the material.
+The goals should help the AI tutor recognize whether the student understands the available sources, can identify useful evidence, can compare source ideas, and can notice gaps or tensions in the material.
 
-Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that Claude should ask verbatim.`,
+Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that the AI tutor should ask verbatim.`,
   build: `Generate hidden readiness goals for the Build stage.
 
-The goals should help Claude recognize whether the student can turn research into an argument direction, choose claims, connect evidence, consider objections, and plan a coherent structure.
+The goals should help the AI tutor recognize whether the student can turn research into an argument direction, choose claims, connect evidence, consider objections, and plan a coherent structure.
 
-Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that Claude should ask verbatim.`,
+Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that the AI tutor should ask verbatim.`,
   write: `Generate hidden readiness goals for the Write stage.
 
-The goals should help Claude recognize whether the student can draft or revise in their own voice, improve clarity and structure, use evidence responsibly, and avoid paste-ready dependence on Claude.
+The goals should help the AI tutor recognize whether the student can draft or revise in their own voice, improve clarity and structure, use evidence responsibly, and avoid paste-ready dependence on AI.
 
-Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that Claude should ask verbatim.`,
+Return goals that are specific to this assignment and are useful as internal conversation targets. Do not write questions that the AI tutor should ask verbatim.`,
+};
+
+export const DEFAULT_STAGE_STARTER_QUESTIONS: Record<SocraticStageKey, string[]> = {
+  clarify: [
+    'What does your assignment prompt specifically ask you to do or explore?',
+    'What is one term in the prompt that feels vague or overloaded?',
+    'What would a strong response need to accomplish, not just mention?',
+  ],
+  research: [
+    'Which source seems most useful right now, and why?',
+    'What pattern or tension are you starting to notice across the sources?',
+    'What evidence still feels missing for the claim you want to make?',
+  ],
+  build: [
+    'What is the most interesting thing you now believe after doing the research?',
+    'What would the strongest objection to your current position be?',
+    'What are the 2 to 4 moves your argument has to make to hold together?',
+  ],
+  write: [
+    'Which paragraph feels strongest right now, and why?',
+    'Where does the draft drift from your thesis or lose clarity?',
+    'What claim still needs stronger evidence or a better transition?',
+  ],
 };
 
 const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiAllowed'>> = {
@@ -547,7 +574,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
-    starterQuestions: [],
+    starterQuestions: [...DEFAULT_STAGE_STARTER_QUESTIONS.clarify],
   },
   research: {
     key: 'research',
@@ -562,7 +589,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
-    starterQuestions: [],
+    starterQuestions: [...DEFAULT_STAGE_STARTER_QUESTIONS.research],
   },
   build: {
     key: 'build',
@@ -577,7 +604,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
-    starterQuestions: [],
+    starterQuestions: [...DEFAULT_STAGE_STARTER_QUESTIONS.build],
   },
   write: {
     key: 'write',
@@ -592,7 +619,7 @@ const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiA
     customInstructions: '',
     readinessQuestions: [],
     starterResponse: '',
-    starterQuestions: [],
+    starterQuestions: [...DEFAULT_STAGE_STARTER_QUESTIONS.write],
   },
 };
 
@@ -706,7 +733,7 @@ export const createDefaultStudioBlueprint = (
   dueAt: input.dueAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   pointsPossible: input.pointsPossible || 100,
   wordCount: input.wordCount || 1500,
-  model: 'Claude',
+  model: 'GPT-5.6 Sol',
   promptControls: { ...DEFAULT_SOCRATIC_PROMPT_CONTROLS },
   stages: {
     clarify: { ...STAGE_BASE_CONFIG.clarify, aiAllowed: true },
@@ -767,14 +794,14 @@ const createPreviewStarterEntry = (
     id: uid(`preview-${stage}`),
     stage,
     actor: 'ai',
-    title: 'Claude',
+    title: 'AI tutor',
     content:
       blueprint.stages[stage].starterResponse?.trim()
       || `Preview note: no ${blueprint.stages[stage].label} starter response has been generated yet. Generate it in assignment setup to see the exact student opening message.`,
     createdAt: nowIso(),
     entryType: 'chat_reply',
     metadata: {
-      model: 'claude-opus-4.5',
+      model: 'gpt-5.6-sol',
       previewStarter: true,
       savedStarterResponse: hasSavedStarter,
       fallbackStarterResponse: !hasSavedStarter,

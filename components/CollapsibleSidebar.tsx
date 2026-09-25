@@ -87,7 +87,7 @@ export default function CollapsibleSidebar({
   return (
     <aside
       className={cn(
-        'bg-white transition-all duration-300 ease-in-out relative flex flex-col',
+        'relative flex shrink-0 flex-col bg-white transition-all duration-300 ease-in-out',
         sidebarWidth,
         'min-h-[calc(100vh-80px)]',
         isExpanded ? 'shadow-lg border-r-0' : 'border-r border-gray-200'

@@ -380,7 +380,7 @@ export default function SocraticStudioReview({
             <TabsContent value="final-report" className="mt-4">
               <div className="space-y-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-950">Final Quiz & Claude Evaluation</h2>
+                  <h2 className="text-xl font-semibold text-gray-950">Final Quiz & GPT-5.6 Sol Evaluation</h2>
                   <p className="text-sm text-gray-600">
                     Educator-only report generated from the final essay, quiz attempt, ledger, notes, chats, and assignment materials.
                   </p>
@@ -394,7 +394,7 @@ export default function SocraticStudioReview({
                     {selectedStudent.finalQuiz.reportStatus !== 'ready' && (
                       <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
                         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                        The student submission is saved. Claude evaluation is generated in the background and will appear here when ready.
+                        The student submission is saved. GPT-5.6 Sol evaluation is generated in the background and will appear here when ready.
                       </div>
                     )}
 
@@ -492,7 +492,7 @@ export default function SocraticStudioReview({
                       </div>
                     ) : (
                       <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                        The Claude evaluation report appears after the student submits the final quiz and final package.
+                        The GPT-5.6 Sol evaluation report appears after the student submits the final quiz and final package.
                       </div>
                     )}
                   </>

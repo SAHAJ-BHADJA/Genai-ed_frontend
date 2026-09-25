@@ -6,17 +6,25 @@ import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
-  Circle,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  Download,
   ExternalLink,
+  FileText,
   FlaskConical,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   NotebookPen,
+  PanelLeftClose,
+  PanelRightClose,
   RefreshCw,
   Send,
   ShieldCheck,
   Sparkles,
   Upload,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Markdown from '@/components/Markdown';
@@ -33,7 +41,6 @@ import {
   buildPdfHtml,
   createStudioLedgerEntry,
   createStudioNote,
-  getRecommendedStage,
   getStageBadgeClasses,
   isStageUnlocked,
   recomputeStageStatuses,
@@ -79,6 +86,8 @@ type EmbeddedQuizSubmissionDetail = {
   questions?: unknown[];
 };
 
+type StudioView = 'brief' | SocraticStageKey;
+
 const isPdfLikeResource = (resource: Pick<SocraticResource, 'url' | 'storagePath'>) => {
   const candidates = [resource.url, resource.storagePath]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
@@ -120,14 +129,28 @@ export default function SocraticStudioWorkspace({
   const [studentPdfSummary, setStudentPdfSummary] = useState('');
   const [studentPdfFile, setStudentPdfFile] = useState<File | null>(null);
   const [uploadingStudentPdf, setUploadingStudentPdf] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
+  const [activeView, setActiveView] = useState<StudioView>('brief');
+  const [writingCollapsed, setWritingCollapsed] = useState(false);
+  const [modeCollapsed, setModeCollapsed] = useState(false);
+  const [desktopSplit, setDesktopSplit] = useState<50 | 70>(50);
+  const [workspaceFullscreen, setWorkspaceFullscreen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<'writing' | 'mode'>('mode');
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [briefPdfOpen, setBriefPdfOpen] = useState(false);
 
   const hydratedRef = useRef(false);
   const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSelectedResourceIdRef = useRef<string | null>(null);
   const authExpiredRef = useRef(false);
   const authExpiredToastShownRef = useRef(false);
+  const essayEditorRef = useRef<SocraticRichTextEditorHandle | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.scrollX === 0) return;
+    window.scrollTo({ left: 0, top: window.scrollY, behavior: 'auto' });
+  }, [desktopSplit, modeCollapsed, workspaceFullscreen, writingCollapsed]);
 
   const handleAuthExpired = (error: unknown) => {
     if (!isSocraticAuthExpiredError(error)) return false;
@@ -348,8 +371,6 @@ export default function SocraticStudioWorkspace({
   }, [blueprint, onSavePreviewSession, previewMode, session, workspaceId]);
 
   const selectedStage = session?.activeStage || 'clarify';
-  const recommendedStage = session ? getRecommendedStage(session) : 'clarify';
-
   const stageSummary = useMemo(() => {
     if (!blueprint || !session) return null;
     return {
@@ -362,6 +383,21 @@ export default function SocraticStudioWorkspace({
     () => allResources.find((resource) => resource.id === selectedResourceId) || null,
     [allResources, selectedResourceId],
   );
+
+  const essayWordCount = useMemo(() => {
+    if (!session) return 0;
+    const text = session.essayHtml
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text ? text.split(' ').length : 0;
+  }, [session]);
+
+  const openResourceFromBrief = (resource: SocraticResource) => {
+    setSelectedResourceId(resource.id);
+    setStage('research');
+  };
 
   const updateSession = (updater: (current: SocraticStudioSession) => SocraticStudioSession) => {
     setSession((current) => {
@@ -378,6 +414,8 @@ export default function SocraticStudioWorkspace({
       ...current,
       activeStage: stage,
     }));
+    setActiveView(stage);
+    setMobilePane('mode');
   };
 
   const getCoachDraft = () => {
@@ -424,7 +462,7 @@ export default function SocraticStudioWorkspace({
 
     const stageConfig = blueprint.stages[selectedStage];
     if (!stageConfig.aiAllowed) {
-      toast.error(`Claude chat is disabled for ${stageConfig.label}.`);
+      toast.error(`AI chat is disabled for ${stageConfig.label}.`);
       return;
     }
 
@@ -468,11 +506,11 @@ export default function SocraticStudioWorkspace({
               id: replyClientId,
               stage: selectedStage,
               actor: 'ai',
-              title: 'Claude',
+              title: 'AI tutor',
               content: '',
               createdAt: now,
               entryType: 'chat_reply',
-              metadata: { model: 'claude-opus-4.5' },
+              metadata: { model: 'gpt-5.6-sol' },
             },
           ],
         };
@@ -535,7 +573,7 @@ export default function SocraticStudioWorkspace({
         ...current,
         ledger: current.ledger.filter((entry) => entry.id !== replyClientId),
       }));
-      toast.error(error instanceof Error ? error.message : 'Failed to reach Claude.');
+      toast.error(error instanceof Error ? error.message : 'Failed to reach the AI tutor.');
     } finally {
       setSendingMessage(false);
     }
@@ -638,7 +676,7 @@ export default function SocraticStudioWorkspace({
   };
 
   const handleInsertNote = (noteContent: string) => {
-    if (selectedStage !== 'write' || readOnly) return;
+    if (readOnly) return;
     handleEssayChange(`${session?.essayHtml || ''}<p>${noteContent}</p>`);
   };
 
@@ -723,7 +761,7 @@ export default function SocraticStudioWorkspace({
       setStudentPdfSummary('');
       toast.success('PDF attached to Sources & Materials.');
       if (previewOnlyLocal) {
-        toast.warning('Preview attached locally. Claude can read it only after it is uploaded by a real student.');
+        toast.warning('Preview attached locally. The AI tutor can read it only after it is uploaded by a real student.');
       }
     } catch (error) {
       if (handleAuthExpired(error)) return;
@@ -872,149 +910,296 @@ export default function SocraticStudioWorkspace({
     );
   }
 
+  const assignmentDocument = blueprint.assignmentDocument;
+  const targetProgress = blueprint.wordCount > 0
+    ? Math.min(100, Math.round((essayWordCount / blueprint.wordCount) * 100))
+    : 0;
+
   return (
-    <div className="max-w-[1500px] mx-auto space-y-6">
-      <div className="rounded-3xl border border-gray-200 bg-white px-8 py-7 shadow-sm">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors mb-5"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          {previewMode ? 'Back to Assignment Setup' : 'Back to Assignment'}
-        </button>
-
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-brand-maroon mb-2">
-              {blueprint.courseCode} | Coaching: Claude{previewMode ? ' | Educator Preview' : ''}
-            </p>
-            <h1 className="text-4xl font-bold text-gray-950">{blueprint.assignmentTitle}</h1>
-            <p className="text-gray-600 mt-3 max-w-3xl">{blueprint.assignmentBrief}</p>
-          </div>
-          <div className="rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 min-w-[220px]">
-            <div className="text-sm font-medium text-orange-700">Due</div>
-            <div className="text-lg font-semibold text-orange-900">
-              {blueprint.dueAt ? new Date(blueprint.dueAt).toLocaleString() : 'No due date'}
-            </div>
-            <div className="text-sm text-orange-700 mt-1">
-              {blueprint.wordCount} words | {blueprint.pointsPossible} points
+    <div className={workspaceFullscreen
+      ? 'fixed inset-0 z-50 h-dvh w-full min-w-0 max-w-full overflow-x-hidden bg-gray-100 p-2 sm:p-4'
+      : 'mx-auto h-[calc(100dvh-9rem)] min-h-[640px] w-full min-w-0 max-w-[1800px] overflow-x-hidden'}>
+      <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <header className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-b border-gray-200 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              aria-label={previewMode ? 'Back to assignment setup' : 'Back to assignment'}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-lg font-semibold text-gray-950 sm:text-xl">Socratic Writing Studio</h1>
+              </div>
+              <p className="truncate text-xs text-gray-500 sm:text-sm">
+                <span className="font-semibold text-brand-maroon">{blueprint.courseCode}</span>
+                {' · '}{blueprint.assignmentTitle}{previewMode ? ' · Student preview' : ''}
+              </p>
             </div>
           </div>
-        </div>
-      </div>
 
-      {previewMode && (
-        <div className="rounded-2xl border border-brand-maroon/20 bg-brand-maroon/5 px-5 py-4 text-brand-maroon">
-          <span className="font-semibold">Preview as Student:</span> this uses real Claude and your current draft setup,
-          but it does not create real student submissions or workspace records.
-        </div>
-      )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setNotesOpen((current) => !current)}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors ${notesOpen ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              <NotebookPen className="h-4 w-4" />
+              <span className="hidden sm:inline">Notes</span>
+              <span className="text-xs">{session.notes.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLedgerOpen((current) => !current)}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors ${ledgerOpen ? 'bg-brand-maroon text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">Ledger</span>
+              <span className="text-xs">{session.ledger.length}</span>
+            </button>
+            <span className="rounded-full bg-blue-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Student
+            </span>
+          </div>
+        </header>
 
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-blue-900 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <span className="font-semibold">Recommended:</span> {blueprint.stages[recommendedStage].label}
-          {' '}| {blueprint.stages[recommendedStage].description}
-        </div>
-        <div className="text-sm text-blue-800">
-          {saving ? 'Saving...' : previewMode ? 'Preview autosave on' : readOnly ? 'Read-only' : session.submittedAt ? 'Submitted - editable until due date' : 'Autosave on'}
-        </div>
-      </div>
+        <nav className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveView('brief');
+              setMobilePane('mode');
+            }}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${activeView === 'brief' ? 'bg-brand-maroon text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          >
+            <FileText className="h-4 w-4" /> Brief
+          </button>
+          <span className="mx-1 h-6 w-px shrink-0 bg-gray-200" />
+          {SOCRATIC_STAGE_ORDER.map((stage) => {
+            const Icon = stageIcons[stage];
+            const active = activeView === stage;
+            const status = session.stageStatuses[stage];
+            return (
+              <button
+                key={stage}
+                type="button"
+                onClick={() => setStage(stage)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${active ? 'bg-brand-maroon text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+              >
+                <Icon className="h-4 w-4" />
+                {blueprint.stages[stage].label}
+                {status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5" />}
+              </button>
+            );
+          })}
+        </nav>
 
-      <div
-        className={`grid gap-6 items-start ${
-          sidebarCollapsed
-            ? 'xl:grid-cols-[minmax(0,1fr)_72px]'
-            : 'xl:grid-cols-[minmax(0,1fr)_360px]'
-        }`}
-      >
-        <div className="space-y-6 min-w-0">
-          <div className="rounded-2xl border border-gray-200 bg-white p-5">
-            <div className="flex flex-wrap gap-3">
-              {SOCRATIC_STAGE_ORDER.map((stage) => {
-                const Icon = stageIcons[stage];
-                const unlocked = isStageUnlocked(stage, session, blueprint);
-                const active = selectedStage === stage;
-                const status = session.stageStatuses[stage];
+        <div className="grid grid-cols-2 border-b border-gray-200 bg-gray-50 p-1 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobilePane('writing')}
+            className={`rounded-lg px-3 py-2 text-sm font-semibold ${mobilePane === 'writing' ? 'bg-white text-brand-maroon shadow-sm' : 'text-gray-500'}`}
+          >
+            Writing
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane('mode')}
+            className={`rounded-lg px-3 py-2 text-sm font-semibold ${mobilePane === 'mode' ? 'bg-white text-brand-maroon shadow-sm' : 'text-gray-500'}`}
+          >
+            {activeView === 'brief' ? 'Brief' : blueprint.stages[selectedStage].label}
+          </button>
+        </div>
 
-                return (
-                  <button
-                    key={stage}
-                    type="button"
-                    onClick={() => setStage(stage)}
-                    disabled={!unlocked}
-                    className={`inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base font-medium transition-colors ${
-                      active
-                        ? 'bg-brand-maroon text-white'
-                        : unlocked
-                          ? 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                          : 'bg-gray-50 text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {blueprint.stages[stage].label}
-                    {status === 'completed' ? (
-                      <CheckCircle2 className="w-4 h-4" />
-                    ) : (
-                      <Circle className="w-4 h-4 opacity-60" />
-                    )}
+        <div className="flex min-h-0 min-w-0 max-w-full flex-1 items-stretch overflow-hidden bg-gray-50">
+          {writingCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setWritingCollapsed(false)}
+              className="hidden w-12 shrink-0 flex-col items-center justify-between border-r border-gray-200 bg-white py-4 text-gray-500 hover:text-brand-maroon lg:flex"
+            >
+              <ChevronRight className="h-4 w-4" />
+              <span className="[writing-mode:vertical-rl] rotate-180 text-xs font-semibold uppercase tracking-[0.2em]">Writing</span>
+              <NotebookPen className="h-4 w-4" />
+            </button>
+          ) : (
+            <section
+              className={`${mobilePane === 'writing' ? 'flex' : 'hidden'} w-full min-w-0 max-w-full flex-col border-r border-gray-200 bg-gray-100 lg:flex lg:w-0`}
+              style={{ flex: desktopSplit === 70 ? '7 1 0%' : '1 1 0%' }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <NotebookPen className="h-4 w-4 text-brand-maroon" />
+                  <span className="font-semibold text-gray-900">Writing</span>
+                  <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{essayWordCount} / {blueprint.wordCount} words</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleExportPdf} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                    <Download className="h-4 w-4" /> Export
                   </button>
-                );
-              })}
-            </div>
-            <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">
-              <span className="font-semibold">Mode:</span> {stageSummary.stageConfig.label} | {stageSummary.stageConfig.description}
-            </div>
-          </div>
+                  <div className="hidden items-center rounded-lg border border-gray-200 p-0.5 lg:flex">
+                    <button type="button" onClick={() => setDesktopSplit(50)} className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${desktopSplit === 50 ? 'bg-brand-maroon text-white' : 'text-gray-500 hover:bg-gray-100'}`}>50%</button>
+                    <button type="button" onClick={() => setDesktopSplit(70)} className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${desktopSplit === 70 ? 'bg-brand-maroon text-white' : 'text-gray-500 hover:bg-gray-100'}`}>70%</button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceFullscreen((current) => !current)}
+                    className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:inline-flex"
+                    aria-label={workspaceFullscreen ? 'Exit focus view' : 'Open focus view'}
+                  >
+                    {workspaceFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </button>
+                  <button type="button" onClick={() => setWritingCollapsed(true)} className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:inline-flex" aria-label="Collapse writing panel">
+                    <PanelLeftClose className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-4 sm:p-6">
+                <div className="mx-auto max-w-[900px] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                  <SocraticRichTextEditor
+                    ref={essayEditorRef}
+                    value={session.essayHtml}
+                    onChange={handleEssayChange}
+                    readOnly={stageSummary.readOnly}
+                    editorClassName="min-h-[620px] sm:min-h-[720px]"
+                  />
+                </div>
+              </div>
+              <div className="border-t border-gray-200 bg-white px-4 py-3">
+                <div className="flex items-center justify-between gap-4 text-xs text-gray-500">
+                  <span>{essayWordCount} words / {blueprint.wordCount} target</span>
+                  <div className="h-2 w-28 overflow-hidden rounded-full bg-gray-200">
+                    <div className="h-full rounded-full bg-brand-maroon transition-all" style={{ width: `${targetProgress}%` }} />
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
 
-          <WorkspaceStageContent
-            allResources={allResources}
-            blueprint={blueprint}
-            getCoachDraft={getCoachDraft}
-            handleCoachMessage={handleCoachMessage}
-            handleEssayChange={handleEssayChange}
-            handleExportPdf={handleExportPdf}
-            handleFinalQuizSubmitted={handleFinalQuizSubmitted}
-            handlePrepareFinalQuiz={handlePrepareFinalQuiz}
-            handleResourceProgress={handleResourceProgress}
-            handleSubmit={handleSubmit}
-            finalQuiz={finalQuiz}
-            readOnly={stageSummary.readOnly}
-            previewMode={previewMode}
-            preparingFinalQuiz={preparingFinalQuiz}
-            runBuildTool={runBuildTool}
-            selectedResource={selectedResource}
-            selectedStage={selectedStage}
-            session={session}
-            setCoachDraft={setCoachDraft}
-            setSelectedResourceId={setSelectedResourceId}
-            setSidebarCollapsed={setSidebarCollapsed}
-            setSourcesCollapsed={setSourcesCollapsed}
-            sendingMessage={sendingMessage}
-            sidebarCollapsed={sidebarCollapsed}
-            syncResourceProgress={syncResourceProgress}
-            sourcesCollapsed={sourcesCollapsed}
-            submitting={submitting}
-          />
+          {modeCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setModeCollapsed(false)}
+              className="hidden w-12 shrink-0 flex-col items-center justify-between border-r border-gray-200 bg-white py-4 text-gray-500 hover:text-brand-maroon lg:flex"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span className="[writing-mode:vertical-rl] rotate-180 text-xs font-semibold uppercase tracking-[0.2em]">{activeView === 'brief' ? 'Brief' : blueprint.stages[selectedStage].label}</span>
+              <Sparkles className="h-4 w-4" />
+            </button>
+          ) : (
+            <section
+              className={`${mobilePane === 'mode' ? 'flex' : 'hidden'} w-full min-w-0 max-w-full flex-col overflow-x-hidden bg-white lg:flex lg:w-0`}
+              style={{ flex: desktopSplit === 70 ? '3 1 0%' : '1 1 0%' }}
+            >
+              <div className="hidden items-center border-b border-gray-200 bg-white px-3 py-2 lg:flex">
+                <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('brief')}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${activeView === 'brief' ? 'bg-brand-maroon text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    <FileText className="h-4 w-4" /> Brief
+                  </button>
+                  {SOCRATIC_STAGE_ORDER.map((stage) => {
+                    const Icon = stageIcons[stage];
+                    const active = activeView === stage;
+                    return (
+                      <button
+                        key={stage}
+                        type="button"
+                        onClick={() => setStage(stage)}
+                        className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${active ? 'bg-brand-maroon text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        <Icon className="h-4 w-4" /> {blueprint.stages[stage].label}
+                      </button>
+                    );
+                  })}
+                </nav>
+                <button type="button" onClick={() => setModeCollapsed(true)} className="ml-2 hidden shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:inline-flex" aria-label="Collapse mode panel">
+                  <PanelRightClose className="h-4 w-4" />
+                </button>
+              </div>
+              <div className={`min-h-0 min-w-0 max-w-full flex-1 overflow-x-hidden ${activeView === 'brief' ? 'overflow-y-auto' : 'overflow-y-hidden'}`}>
+                {activeView === 'brief' ? (
+                  <BriefPanel
+                    assignmentDocument={assignmentDocument}
+                    blueprint={blueprint}
+                    briefPdfOpen={briefPdfOpen}
+                    onOpenResource={openResourceFromBrief}
+                    session={session}
+                    setBriefPdfOpen={setBriefPdfOpen}
+                  />
+                ) : (
+                  <WorkspaceStageContent
+                    allResources={allResources}
+                    blueprint={blueprint}
+                    getCoachDraft={getCoachDraft}
+                    handleCoachMessage={handleCoachMessage}
+                    handleFinalQuizSubmitted={handleFinalQuizSubmitted}
+                    handlePrepareFinalQuiz={() => handlePrepareFinalQuiz(essayEditorRef.current?.getHtml())}
+                    handleResourceProgress={handleResourceProgress}
+                    handleSubmit={handleSubmit}
+                    finalQuiz={finalQuiz}
+                    readOnly={stageSummary.readOnly}
+                    previewMode={previewMode}
+                    preparingFinalQuiz={preparingFinalQuiz}
+                    runBuildTool={runBuildTool}
+                    selectedResource={selectedResource}
+                    selectedStage={selectedStage}
+                    session={session}
+                    setCoachDraft={setCoachDraft}
+                    setSelectedResourceId={setSelectedResourceId}
+                    setSourcesCollapsed={setSourcesCollapsed}
+                    sendingMessage={sendingMessage}
+                    syncResourceProgress={syncResourceProgress}
+                    sourcesCollapsed={sourcesCollapsed}
+                    submitting={submitting}
+                    studentPdfSummary={studentPdfSummary}
+                    setStudentPdfSummary={setStudentPdfSummary}
+                    studentPdfFile={studentPdfFile}
+                    setStudentPdfFile={setStudentPdfFile}
+                    handleUploadStudentPdf={handleUploadStudentPdf}
+                    uploadingStudentPdf={uploadingStudentPdf}
+                  />
+                )}
+              </div>
+            </section>
+          )}
+
+          {notesOpen && (
+            <WorkspaceDock
+              kind="notes"
+              blueprint={blueprint}
+              session={session}
+              selectedStage={selectedStage}
+              readOnly={stageSummary.readOnly}
+              newNoteDraft={newNoteDraft}
+              setNewNoteDraft={setNewNoteDraft}
+              handleAddNote={handleAddNote}
+              handleInsertNote={handleInsertNote}
+              onClose={() => setNotesOpen(false)}
+              paired={notesOpen && ledgerOpen}
+            />
+          )}
+          {ledgerOpen && (
+            <WorkspaceDock
+              kind="ledger"
+              blueprint={blueprint}
+              session={session}
+              selectedStage={selectedStage}
+              readOnly={stageSummary.readOnly}
+              newNoteDraft={newNoteDraft}
+              setNewNoteDraft={setNewNoteDraft}
+              handleAddNote={handleAddNote}
+              handleInsertNote={handleInsertNote}
+              onClose={() => setLedgerOpen(false)}
+              paired={notesOpen && ledgerOpen}
+            />
+          )}
         </div>
-
-        <WorkspaceSidebar
-          blueprint={blueprint}
-          collapsed={sidebarCollapsed}
-          handleAddNote={handleAddNote}
-          handleInsertNote={handleInsertNote}
-          handleUploadStudentPdf={handleUploadStudentPdf}
-          newNoteDraft={newNoteDraft}
-          readOnly={stageSummary.readOnly}
-          selectedStage={selectedStage}
-          session={session}
-          setNewNoteDraft={setNewNoteDraft}
-          setStudentPdfFile={setStudentPdfFile}
-          setStudentPdfSummary={setStudentPdfSummary}
-          setCollapsed={setSidebarCollapsed}
-          studentPdfFile={studentPdfFile}
-          studentPdfSummary={studentPdfSummary}
-          uploadingStudentPdf={uploadingStudentPdf}
-        />
       </div>
     </div>
   );
@@ -1039,37 +1224,20 @@ type WorkspaceStageContentProps = {
     nextState: { opened?: boolean; completed?: boolean },
   ) => void;
   runBuildTool: (tool: 'thesis' | 'structure' | 'stress') => void;
-  handleEssayChange: (nextHtml: string) => void;
-  handleExportPdf: () => void;
-  handlePrepareFinalQuiz: (currentEssayHtml?: string) => void;
+  handlePrepareFinalQuiz: () => void;
   handleFinalQuizSubmitted: (quizDetail?: EmbeddedQuizSubmissionDetail) => void;
   handleSubmit: () => void;
-  sidebarCollapsed: boolean;
-  setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   sourcesCollapsed: boolean;
   setSourcesCollapsed: Dispatch<SetStateAction<boolean>>;
   submitting: boolean;
   preparingFinalQuiz: boolean;
   sendingMessage: boolean;
-};
-
-type WorkspaceSidebarProps = {
-  blueprint: SocraticStudioBlueprint;
-  collapsed: boolean;
-  session: SocraticStudioSession;
-  readOnly: boolean;
-  selectedStage: SocraticStageKey;
-  newNoteDraft: string;
-  setNewNoteDraft: (value: string) => void;
-  handleAddNote: () => void;
   studentPdfSummary: string;
   setStudentPdfSummary: (value: string) => void;
   studentPdfFile: File | null;
   setStudentPdfFile: (value: File | null) => void;
   handleUploadStudentPdf: () => void;
   uploadingStudentPdf: boolean;
-  handleInsertNote: (noteContent: string) => void;
-  setCollapsed: Dispatch<SetStateAction<boolean>>;
 };
 
 function WorkspaceStageContent({
@@ -1088,18 +1256,20 @@ function WorkspaceStageContent({
   handleResourceProgress,
   syncResourceProgress,
   runBuildTool,
-  handleEssayChange,
-  handleExportPdf,
   handlePrepareFinalQuiz,
   handleFinalQuizSubmitted,
   handleSubmit,
-  sidebarCollapsed,
-  setSidebarCollapsed,
   sourcesCollapsed,
   setSourcesCollapsed,
   submitting,
   preparingFinalQuiz,
   sendingMessage,
+  studentPdfSummary,
+  setStudentPdfSummary,
+  studentPdfFile,
+  setStudentPdfFile,
+  handleUploadStudentPdf,
+  uploadingStudentPdf,
 }: WorkspaceStageContentProps) {
   const stageConfig = blueprint.stages[selectedStage];
   const stageConversation = session.ledger.filter(
@@ -1108,7 +1278,12 @@ function WorkspaceStageContent({
       (entry.entryType === 'chat_prompt' || entry.entryType === 'chat_reply'),
   );
   const [readingReachedEnd, setReadingReachedEnd] = useState<Record<string, boolean>>({});
-  const essayEditorRef = useRef<SocraticRichTextEditorHandle | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!sendingMessage) return;
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [sendingMessage, stageConversation.at(-1)?.content]);
 
   const getResourceProgress = (resource: SocraticResource) => session.resourceProgress[resource.id];
   const isResourceCompleted = (resource: SocraticResource) => {
@@ -1121,10 +1296,10 @@ function WorkspaceStageContent({
     selectedResource?.type === 'avatar_lecture' || selectedResource?.type === 'lecture';
   const selectedResourceProgress = selectedResource ? getResourceProgress(selectedResource) : undefined;
   const selectedReadingIsPdf = selectedResource && isReadingResource ? isPdfLikeResource(selectedResource) : false;
-  const readingFocusMode = sourcesCollapsed && sidebarCollapsed;
-
+  const readingFocusMode = sourcesCollapsed;
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 space-y-5">
+    <div className="flex h-full w-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden">
+      <div className="min-h-0 min-w-0 max-w-full flex-1 space-y-5 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-950">{stageConfig.label}</h2>
@@ -1140,6 +1315,7 @@ function WorkspaceStageContent({
       </div>
 
       {selectedStage === 'research' && (
+        <div className="space-y-5">
         <div className={`grid gap-5 min-w-0 ${sourcesCollapsed ? 'lg:grid-cols-[minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
           {!sourcesCollapsed && (
             <div className="space-y-3">
@@ -1214,17 +1390,9 @@ function WorkspaceStageContent({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSidebarCollapsed((current) => !current)}
-                      className="hidden xl:inline-flex rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      {sidebarCollapsed ? 'Show Notebook' : 'Hide Notebook'}
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => {
                         const nextFocused = !readingFocusMode;
                         setSourcesCollapsed(nextFocused);
-                        setSidebarCollapsed(nextFocused);
                       }}
                       className="hidden xl:inline-flex rounded-lg border border-brand-maroon px-3 py-2 text-xs font-semibold text-brand-maroon hover:bg-brand-maroon hover:text-white"
                     >
@@ -1366,6 +1534,28 @@ function WorkspaceStageContent({
             )}
           </div>
         </div>
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-gray-900">Add your own research PDF</h3>
+                <p className="mt-1 text-sm text-gray-600">The source stays attached to this studio and is recorded in the ledger.</p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">
+                <Upload className="h-4 w-4" /> Choose PDF
+                <Input className="sr-only" type="file" accept="application/pdf" onChange={(event) => setStudentPdfFile(event.target.files?.[0] || null)} disabled={readOnly || uploadingStudentPdf} />
+              </label>
+            </div>
+            {studentPdfFile && (
+              <div className="mt-4 space-y-3">
+                <div className="text-sm font-medium text-gray-800">{studentPdfFile.name}</div>
+                <Textarea rows={2} value={studentPdfSummary} onChange={(event) => setStudentPdfSummary(event.target.value)} placeholder="What should this PDF help you investigate?" disabled={readOnly || uploadingStudentPdf} />
+                <button type="button" onClick={handleUploadStudentPdf} disabled={readOnly || uploadingStudentPdf} className="rounded-lg bg-brand-maroon px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  {uploadingStudentPdf ? 'Attaching…' : 'Attach PDF'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {selectedStage === 'build' && (
@@ -1449,27 +1639,32 @@ function WorkspaceStageContent({
 
       {selectedStage === 'write' && (
         <div className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-gray-900">Compose the Essay</h3>
-            <button
-              type="button"
-              onClick={handleExportPdf}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Export PDF
-            </button>
+          <div className="rounded-2xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">AI writing tools</h3>
+            <div className="mt-4 grid gap-3">
+              {[
+                ['Check Clarity & Style', 'Analyze readability and tone without rewriting the draft.'],
+                ['Review Argument Flow', 'Check logical structure and transitions.'],
+                ['Identify Weak Points', 'Find claims that need stronger support.'],
+                ['Suggest Transitions', 'Get ideas for connecting paragraphs.'],
+              ].map(([title, description]) => (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => setCoachDraft(`${title}: Review my current draft and guide me with questions and specific feedback. Do not rewrite it for me.`)}
+                  className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-purple-300 hover:bg-purple-50"
+                >
+                  <div className="font-semibold text-gray-900">{title}</div>
+                  <div className="mt-1 text-sm text-gray-600">{description}</div>
+                </button>
+              ))}
+            </div>
           </div>
-          <SocraticRichTextEditor
-            ref={essayEditorRef}
-            value={session.essayHtml}
-            onChange={handleEssayChange}
-            readOnly={readOnly}
-          />
           <FinalSocraticSubmissionCard
             blueprint={blueprint}
             finalQuiz={finalQuiz}
             onFinalQuizSubmitted={handleFinalQuizSubmitted}
-            onPrepareFinalQuiz={() => handlePrepareFinalQuiz(essayEditorRef.current?.getHtml())}
+            onPrepareFinalQuiz={handlePrepareFinalQuiz}
             onSubmit={handleSubmit}
             preparingFinalQuiz={preparingFinalQuiz}
             previewMode={previewMode}
@@ -1480,84 +1675,92 @@ function WorkspaceStageContent({
         </div>
       )}
 
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-4">
-        <div className="flex items-center gap-2 text-amber-900 font-semibold">
-          <Sparkles className="w-4 h-4" />
-          Claude Chat
-        </div>
+      <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden rounded-2xl border border-amber-200 bg-amber-50 p-5">
         {!stageConfig.aiAllowed ? (
           <div className="text-sm text-amber-900">
-            Claude chat is disabled for {stageConfig.label}. Continue with notes and the stage tools instead.
+            AI chat is disabled for {stageConfig.label}. Continue with notes and the stage tools instead.
           </div>
         ) : (
-          <>
-            <div className="space-y-3">
-              {stageConversation.length === 0 ? (
-                <div className="rounded-xl bg-white px-4 py-3 text-sm text-gray-600">
-                  Start the conversation with Claude for {stageConfig.label.toLowerCase()}.
-                </div>
-              ) : (
-                stageConversation.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`flex ${entry.actor === 'student' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        entry.actor === 'student'
-                          ? 'bg-brand-maroon text-white'
-                          : 'bg-white border border-gray-200 text-gray-900'
-                      }`}
-                    >
-                      <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${
-                        entry.actor === 'student' ? 'text-white/70' : 'text-gray-500'
-                      }`}>
-                        {entry.actor === 'student' ? 'You' : 'Claude'}
-                      </div>
-                      {entry.actor === 'ai' ? (
-                        <div className="socratic-chat-markdown">
-                          <Markdown value={entry.content || (sendingMessage ? '...' : '')} />
-                        </div>
-                      ) : (
-                        <div className="whitespace-pre-wrap">{entry.content || (sendingMessage ? '...' : '')}</div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="space-y-3">
-              {selectedStage === 'write' && (
-                <button
-                  type="button"
-                  onClick={() => setCoachDraft('Review the current draft and ask me one revision question at a time.')}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Let Claude read the current draft
-                </button>
-              )}
-              <Textarea
-                rows={4}
-                value={getCoachDraft()}
-                onChange={(event) => setCoachDraft(event.target.value)}
-                placeholder={`Chat with Claude in ${stageConfig.label.toLowerCase()}...`}
-                disabled={readOnly}
-              />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleCoachMessage}
-                  disabled={readOnly || sendingMessage || !getCoachDraft().trim()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-maroon px-4 py-2 text-sm font-semibold text-white hover:bg-brand-maroon-hover disabled:opacity-50"
-                >
-                  <Send className="w-4 h-4" />
-                  {sendingMessage ? 'Sending...' : 'Send'}
-                </button>
+          <div className="space-y-3">
+            {stageConversation.length === 0 ? (
+              <div className="rounded-xl bg-white px-4 py-3 text-sm text-gray-600">
+                Start the conversation with the AI tutor for {stageConfig.label.toLowerCase()}.
               </div>
-            </div>
-          </>
+            ) : (
+              stageConversation.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`flex ${entry.actor === 'student' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                      entry.actor === 'student'
+                        ? 'bg-brand-maroon text-white'
+                        : 'bg-white border border-gray-200 text-gray-900'
+                    }`}
+                  >
+                    <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${
+                      entry.actor === 'student' ? 'text-white/70' : 'text-gray-500'
+                    }`}>
+                      {entry.actor === 'student' ? 'You' : 'AI tutor'}
+                    </div>
+                    {entry.actor === 'ai' ? (
+                      <div className="socratic-chat-markdown">
+                        <Markdown value={entry.content || (sendingMessage ? '...' : '')} />
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{entry.content || (sendingMessage ? '...' : '')}</div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         )}
+        <div ref={chatEndRef} />
       </div>
+      </div>
+      {stageConfig.aiAllowed && (
+        <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-amber-200 bg-amber-50/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:p-4">
+          {selectedStage === 'write' && (
+            <button
+              type="button"
+              onClick={() => setCoachDraft('Review the current draft and ask me one revision question at a time.')}
+              className="mb-2 rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs font-medium text-purple-800 hover:bg-purple-50"
+            >
+              Let the AI tutor read the current draft
+            </button>
+          )}
+          <div className="flex min-w-0 max-w-full items-end gap-2">
+            <Textarea
+              rows={2}
+              value={getCoachDraft()}
+              onChange={(event) => setCoachDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  if (!readOnly && !sendingMessage && getCoachDraft().trim()) {
+                    handleCoachMessage();
+                  }
+                }
+              }}
+              placeholder={`Ask the AI tutor in ${stageConfig.label.toLowerCase()}…`}
+              disabled={readOnly}
+              className="min-h-[64px] resize-none bg-white"
+            />
+            <button
+              type="button"
+              onClick={handleCoachMessage}
+              disabled={readOnly || sendingMessage || !getCoachDraft().trim()}
+              className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl bg-brand-maroon px-4 text-sm font-semibold text-white hover:bg-brand-maroon-hover disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" />
+              <span className="hidden sm:inline">{sendingMessage ? 'Sending…' : 'Send'}</span>
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-amber-800/70">Enter to send · Shift+Enter for a new line</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1661,7 +1864,7 @@ function FinalSocraticSubmissionCard({
       {!hasEnoughEssay && !session.submittedAt && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          Write more of the essay before generating the final quiz. This prevents Claude from creating a weak quiz from an empty draft.
+          Write more of the essay before generating the final quiz. This prevents the AI tutor from creating a weak quiz from an empty draft.
         </div>
       )}
 
@@ -1731,6 +1934,156 @@ function FinalSocraticSubmissionCard({
     </div>
   );
 }
+
+function BriefPanel({
+  assignmentDocument,
+  blueprint,
+  briefPdfOpen,
+  onOpenResource,
+  session,
+  setBriefPdfOpen,
+}: {
+  assignmentDocument: SocraticStudioBlueprint['assignmentDocument'];
+  blueprint: SocraticStudioBlueprint;
+  briefPdfOpen: boolean;
+  onOpenResource: (resource: SocraticResource) => void;
+  session: SocraticStudioSession;
+  setBriefPdfOpen: (open: boolean) => void;
+}) {
+  const requiredResources = blueprint.resources.filter((resource) => resource.required);
+
+  return (
+    <div className="min-w-0 max-w-full space-y-5 overflow-x-hidden p-4 sm:p-6">
+      <section className="overflow-hidden rounded-2xl border border-red-200 bg-white">
+        <div className="bg-brand-maroon px-5 py-4 text-white">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">
+            {blueprint.courseCode} · Assignment brief
+          </div>
+          <h2 className="mt-2 text-xl font-semibold leading-tight">{blueprint.assignmentTitle}</h2>
+        </div>
+        <div className="space-y-4 p-5">
+          <p className="whitespace-pre-wrap text-sm leading-6 text-gray-700">{blueprint.assignmentBrief}</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-gray-100 pt-4 text-sm text-gray-600">
+            <span><strong className="text-gray-900">{blueprint.wordCount}</strong> words</span>
+            <span><strong className="text-gray-900">{blueprint.pointsPossible}</strong> points</span>
+            <span>Due <strong className="text-gray-900">{blueprint.dueAt ? new Date(blueprint.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'not set'}</strong></span>
+          </div>
+        </div>
+      </section>
+
+      {assignmentDocument?.url && (
+        <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-200 bg-white">
+          <button type="button" onClick={() => setBriefPdfOpen(!briefPdfOpen)} className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-gray-50">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-red-50 text-red-600"><FileText className="h-5 w-5" /></span>
+              <div className="min-w-0"><div className="truncate font-semibold text-gray-900">{assignmentDocument.name}</div><div className="text-xs text-gray-500">Posted by educator · assignment document</div></div>
+            </div>
+            <span className="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700">{briefPdfOpen ? 'Hide PDF' : 'View PDF'}</span>
+          </button>
+          {briefPdfOpen && <div className="min-w-0 max-w-full overflow-hidden border-t border-gray-200 p-3"><SocraticPdfReader url={assignmentDocument.url} title={assignmentDocument.name} /></div>}
+        </section>
+      )}
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-gray-400" /><h3 className="font-semibold text-gray-900">Required before submitting</h3></div>
+        <div className="mt-4 space-y-2">
+          {requiredResources.map((resource) => {
+            const progress = session.resourceProgress[resource.id];
+            const complete = Boolean(progress?.completed);
+            return (
+              <button key={resource.id} type="button" onClick={() => onOpenResource(resource)} className="flex w-full items-center gap-3 rounded-xl bg-gray-50 px-3 py-3 text-left transition-colors hover:bg-amber-50">
+                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${complete ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 bg-white'}`}>{complete && <CheckCircle2 className="h-3.5 w-3.5" />}</span>
+                <BookOpen className="h-4 w-4 shrink-0 text-blue-500" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">{resource.title}</span>
+                <span className="text-xs text-gray-400">{resource.type.replace('_', ' ')}</span>
+              </button>
+            );
+          })}
+          {requiredResources.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">No required research materials were attached to this assignment.</div>}
+        </div>
+        {requiredResources.length > 0 && <p className="mt-3 text-xs text-gray-500">Open any item to continue in Research. Progress updates automatically.</p>}
+      </section>
+    </div>
+  );
+}
+
+function WorkspaceDock({
+  kind,
+  blueprint,
+  session,
+  selectedStage,
+  readOnly,
+  newNoteDraft,
+  setNewNoteDraft,
+  handleAddNote,
+  handleInsertNote,
+  onClose,
+  paired,
+}: {
+  kind: 'notes' | 'ledger';
+  blueprint: SocraticStudioBlueprint;
+  session: SocraticStudioSession;
+  selectedStage: SocraticStageKey;
+  readOnly: boolean;
+  newNoteDraft: string;
+  setNewNoteDraft: (value: string) => void;
+  handleAddNote: () => void;
+  handleInsertNote: (noteContent: string) => void;
+  onClose: () => void;
+  paired: boolean;
+}) {
+  const isNotes = kind === 'notes';
+  return (
+    <aside className={`fixed inset-y-0 z-[60] flex min-w-0 flex-col border-l border-gray-200 bg-white shadow-2xl lg:static lg:z-auto lg:w-[320px] lg:shrink-0 lg:shadow-none ${paired ? `w-1/2 ${isNotes ? 'left-0 lg:left-auto' : 'right-0'}` : 'right-0 w-full max-w-sm'}`}>
+      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+        <div className="flex items-center gap-2 font-semibold text-gray-900">{isNotes ? <NotebookPen className="h-4 w-4 text-amber-600" /> : <FileText className="h-4 w-4 text-brand-maroon" />}{isNotes ? 'My Notes' : 'Contribution Ledger'}</div>
+        <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={`Close ${kind}`}><X className="h-4 w-4" /></button>
+      </div>
+      {!isNotes && <div className="border-b border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">Transparent record of AI interactions and learning activity across all four stages.</div>}
+      {isNotes && (
+        <div className="space-y-3 border-b border-gray-200 p-4">
+          <Textarea rows={3} value={newNoteDraft} onChange={(event) => setNewNoteDraft(event.target.value)} placeholder={`Add a ${blueprint.stages[selectedStage].label.toLowerCase()} note…`} disabled={readOnly} />
+          <button type="button" onClick={handleAddNote} disabled={readOnly || !newNoteDraft.trim()} className="w-full rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-gray-950 hover:bg-amber-500 disabled:opacity-50">Add note</button>
+        </div>
+      )}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        {isNotes ? session.notes.slice().reverse().map((note) => (
+          <div key={note.id} className="rounded-xl border border-gray-200 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2"><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getStageBadgeClasses(note.stage)}`}>{blueprint.stages[note.stage].label}</span><span className="text-[10px] text-gray-400">{new Date(note.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
+            <p className="whitespace-pre-wrap text-sm leading-5 text-gray-700">{note.content}</p>
+            <button type="button" onClick={() => handleInsertNote(note.content)} disabled={readOnly} className="mt-2 text-xs font-semibold text-brand-maroon hover:underline disabled:opacity-50">Insert into draft</button>
+          </div>
+        )) : session.ledger.slice().reverse().map((entry) => (
+          <div key={entry.id} className="rounded-xl border border-gray-200 p-3">
+            <div className="mb-2 flex items-center gap-2"><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getStageBadgeClasses(entry.stage)}`}>{blueprint.stages[entry.stage].label}</span><span className="text-[10px] text-gray-400">{new Date(entry.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
+            <div className="text-sm font-semibold text-gray-900">{entry.title}</div>
+            <p className="mt-1 line-clamp-5 whitespace-pre-wrap text-xs leading-5 text-gray-600">{entry.content}</p>
+          </div>
+        ))}
+        {(isNotes ? session.notes : session.ledger).length === 0 && <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">{isNotes ? 'Your notes will stay available across every stage.' : 'Activity will appear here as you work.'}</div>}
+      </div>
+    </aside>
+  );
+}
+
+type WorkspaceSidebarProps = {
+  blueprint: SocraticStudioBlueprint;
+  collapsed: boolean;
+  session: SocraticStudioSession;
+  readOnly: boolean;
+  selectedStage: SocraticStageKey;
+  newNoteDraft: string;
+  setNewNoteDraft: (value: string) => void;
+  handleAddNote: () => void;
+  studentPdfSummary: string;
+  setStudentPdfSummary: (value: string) => void;
+  studentPdfFile: File | null;
+  setStudentPdfFile: (value: File | null) => void;
+  handleUploadStudentPdf: () => void;
+  uploadingStudentPdf: boolean;
+  handleInsertNote: (noteContent: string) => void;
+  setCollapsed: Dispatch<SetStateAction<boolean>>;
+};
 
 function WorkspaceSidebar({
   blueprint,

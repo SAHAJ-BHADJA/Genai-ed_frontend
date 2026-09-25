@@ -744,12 +744,12 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     setActiveConversationId('');
     setDetail(null);
     setSelectedTargetRunId('');
-    setExpandedOutput(null);
     setHistoryOpen(false);
     setHistoryQuery('');
     setLoadingConversation(false);
     setInput('');
     setError('');
+    setExpandedOutput(null);
   }
 
   async function loadConversation(conversationId: string) {
@@ -761,6 +761,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     setHistoryOpen(false);
     setLoadingConversation(true);
     setError('');
+    setExpandedOutput(null);
     try {
       const nextDetail = await apiRequest<ConversationDetail>(`/conversations/${conversationId}`);
       if (conversationLoadSequenceRef.current !== loadSequence) return;
@@ -1097,8 +1098,8 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               <button
                 type="button"
                 onClick={() => setModelsPanelCollapsed(true)}
-                title="Collapse model panel"
-                aria-label="Collapse model panel"
+                title="Hide panel"
+                aria-label="Hide response models panel"
                 className="absolute -right-3 top-5 z-20 hidden h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition hover:border-[#a90000] hover:text-[#a90000] xl:flex"
               >
                 <PanelLeftClose className="h-3.5 w-3.5" />
@@ -1110,8 +1111,8 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 <button
                   type="button"
                   onClick={() => setModelsPanelCollapsed(false)}
-                  title="Expand model panel"
-                  aria-label="Expand model panel"
+                  title="Show panel"
+                  aria-label="Show response models panel"
                   className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-[#a90000] hover:bg-red-50 hover:text-[#a90000]"
                 >
                   <PanelLeftOpen className="h-4 w-4" />
@@ -1380,11 +1381,11 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                     setToolsPanelCollapsed(collapsePanels);
                   }}
                   aria-pressed={responsesFocused}
-                  title={responsesFocused ? 'Restore side panels' : 'Focus on responses'}
-                  className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-[#a90000] hover:text-[#a90000] xl:inline-flex"
+                  title={responsesFocused ? 'Show panels' : 'Hide panels'}
+                  aria-label={responsesFocused ? 'Show panels' : 'Hide panels'}
+                  className="hidden h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-[#a90000] hover:text-[#a90000] xl:inline-flex"
                 >
                   {responsesFocused ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-                  {responsesFocused ? 'Show panels' : 'Focus responses'}
                 </button>
               </div>
             </div>
@@ -1445,28 +1446,10 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                           {outputs.map((output) => {
                             const model = modelDefinition(output.modelId);
                             const outputStreaming = run.status === 'running' && output.latencyMs === 0 && !output.error;
-                            const previewTruncated = output.text.length > 700;
                             return (
                               <div
                                 key={`${run.id}-${output.modelId}`}
-                                role="button"
-                                tabIndex={0}
-                                aria-haspopup="dialog"
-                                aria-label={`Open the full ${model.shortLabel} response`}
-                                title="Click to read the full response"
-                                onClick={(event) => {
-                                  const target = event.target as HTMLElement;
-                                  if (target.closest('a, button, input, textarea, select')) return;
-                                  setExpandedOutput(output);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.target !== event.currentTarget) return;
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault();
-                                    setExpandedOutput(output);
-                                  }
-                                }}
-                                className={`group min-w-0 cursor-zoom-in rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#a90000]/30 focus:ring-offset-2 ${model.tint} ${model.hoverTint}`}
+                                className={`group min-w-0 rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${model.tint} ${model.hoverTint}`}
                               >
                                 <div className="mb-3 flex items-center justify-between gap-3 border-b border-black/5 pb-3">
                                   <div className="flex min-w-0 items-center gap-2">
@@ -1487,9 +1470,17 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                                         </>
                                       )}
                                     </span>
-                                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/80 text-slate-400 opacity-60 transition group-hover:text-[#a90000] group-hover:opacity-100 group-focus:text-[#a90000] group-focus:opacity-100">
-                                      <Maximize2 className="h-3.5 w-3.5" />
-                                    </span>
+                                    {output.text && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedOutput(output)}
+                                        title={`Expand ${model.shortLabel} response`}
+                                        aria-label={`Expand ${model.shortLabel} response`}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-transparent bg-white/70 text-slate-400 transition hover:border-slate-200 hover:bg-white hover:text-[#a90000] focus:outline-none focus:ring-2 focus:ring-[#a90000]/25"
+                                      >
+                                        <Maximize2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                                 {output.error ? (
@@ -1502,23 +1493,10 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                                 ) : !output.text ? (
                                   <p className="py-2 text-sm text-slate-500">No response content was returned.</p>
                                 ) : (
-                                  <div className="min-w-0">
-                                    <div className="relative min-w-0">
-                                      <div className="max-h-[360px] min-w-0 overflow-hidden [&_.markdown-table-scroll]:overflow-hidden">
-                                        <Markdown value={output.text} />
-                                        {outputStreaming && (
-                                          <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-current align-middle" />
-                                        )}
-                                      </div>
-                                      {previewTruncated && (
-                                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white via-white/90 to-transparent" />
-                                      )}
-                                    </div>
-                                    {output.text && (
-                                      <div className="mt-3 flex items-center justify-center gap-1.5 border-t border-black/5 pt-3 text-[11px] font-semibold text-slate-500 transition group-hover:text-[#a90000]">
-                                        <Maximize2 className="h-3 w-3" />
-                                        Open full response
-                                      </div>
+                                  <div className="min-w-0 overflow-x-auto">
+                                    <Markdown value={output.text} />
+                                    {outputStreaming && (
+                                      <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-current align-middle" />
                                     )}
                                   </div>
                                 )}
@@ -1577,8 +1555,8 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
               <button
                 type="button"
                 onClick={() => setToolsPanelCollapsed(true)}
-                title="Collapse tools panel"
-                aria-label="Collapse tools panel"
+                title="Hide panel"
+                aria-label="Hide evaluation tools panel"
                 className="absolute -left-3 top-5 z-20 hidden h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition hover:border-[#a90000] hover:text-[#a90000] xl:flex"
               >
                 <PanelRightClose className="h-3.5 w-3.5" />
@@ -1590,8 +1568,8 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
                 <button
                   type="button"
                   onClick={() => setToolsPanelCollapsed(false)}
-                  title="Expand tools panel"
-                  aria-label="Expand tools panel"
+                  title="Show panel"
+                  aria-label="Show evaluation tools panel"
                   className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-[#a90000] hover:bg-red-50 hover:text-[#a90000]"
                 >
                   <PanelRightOpen className="h-4 w-4" />

@@ -28,6 +28,7 @@ export default function SocraticPdfReader({
   const [error, setError] = useState<string | null>(null);
   const [reachedEnd, setReachedEnd] = useState(false);
   const [renderedPageCount, setRenderedPageCount] = useState(0);
+  const [viewerWidth, setViewerWidth] = useState(0);
   const reachedEndRef = useRef(false);
 
   useEffect(() => {
@@ -39,6 +40,26 @@ export default function SocraticPdfReader({
   }, [onReachedEnd]);
 
   useEffect(() => {
+    const host = pagesHostRef.current;
+    if (!host) return;
+
+    const updateViewerWidth = () => {
+      const nextWidth = Math.floor(host.getBoundingClientRect().width);
+      setViewerWidth((current) => (current === nextWidth ? current : nextWidth));
+    };
+
+    updateViewerWidth();
+    const observer = new ResizeObserver(updateViewerWidth);
+    observer.observe(host);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (viewerWidth <= 0) return;
+    const host = pagesHostRef.current;
+    if (!host) return;
+
     let active = true;
     let pageViews: Array<{ destroy: () => void }> = [];
     let pdfDocument: any = null;
@@ -70,26 +91,25 @@ export default function SocraticPdfReader({
           return;
         }
 
-        const host = pagesHostRef.current;
-        if (!host) {
-          throw new Error('PDF viewer host is not available.');
-        }
-
         host.replaceChildren();
-        host.style.setProperty('--scale-factor', String(PDF_SCALE * PDF_TO_CSS_UNITS));
         const eventBus = new pdfjsViewer.EventBus();
 
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
           const pdfPage = await pdfDocument.getPage(pageNumber);
+          const unscaledViewport = pdfPage.getViewport({ scale: 1 });
+          const fittedScale = Math.min(
+            PDF_SCALE,
+            viewerWidth / (unscaledViewport.width * PDF_TO_CSS_UNITS),
+          );
           const viewport = pdfPage.getViewport({
-            scale: PDF_SCALE * PDF_TO_CSS_UNITS,
+            scale: fittedScale * PDF_TO_CSS_UNITS,
           });
 
           const pageView = new pdfjsViewer.PDFPageView({
             container: host,
             eventBus,
             id: pageNumber,
-            scale: PDF_SCALE,
+            scale: fittedScale,
             defaultViewport: viewport.clone(),
           });
 
@@ -124,12 +144,10 @@ export default function SocraticPdfReader({
       active = false;
       pageViews.forEach((pageView) => pageView.destroy());
       pageViews = [];
-      if (pagesHostRef.current) {
-        pagesHostRef.current.replaceChildren();
-      }
+      host.replaceChildren();
       void pdfDocument?.destroy?.();
     };
-  }, [url]);
+  }, [url, viewerWidth]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -159,10 +177,18 @@ export default function SocraticPdfReader({
       <style jsx global>{`
         .socratic-pdf-viewer {
           --page-bg-color: #ffffff;
+          contain: inline-size;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
           overflow-x: hidden;
         }
 
         .socratic-pdf-viewer > div:first-child {
+          contain: inline-size;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
           overflow-x: hidden;
         }
 
@@ -172,6 +198,7 @@ export default function SocraticPdfReader({
           background: var(--page-bg-color);
           box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
           overflow: hidden;
+          min-width: 0 !important;
           max-width: 100%;
         }
 
@@ -220,16 +247,16 @@ export default function SocraticPdfReader({
         }
       `}</style>
 
-      <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-200 bg-white">
         <div className="border-b border-gray-200 px-4 py-3 bg-gray-50">
           <h4 className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{title}</h4>
           <p className="text-xs text-gray-600 mt-1">
             Scroll to the end of the PDF to unlock completion.
           </p>
         </div>
-        <div ref={scrollRef} className="relative max-h-[78vh] overflow-y-auto overflow-x-hidden bg-gray-100">
-          <div className="socratic-pdf-viewer p-5">
-            <div ref={pagesHostRef} />
+        <div ref={scrollRef} className="relative min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-gray-100 max-h-[min(70vh,760px)]">
+          <div className="socratic-pdf-viewer min-w-0 max-w-full p-3 sm:p-5">
+            <div ref={pagesHostRef} className="w-full min-w-0 max-w-full overflow-x-hidden" />
             {!loading && !error && (
               <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-5 text-center text-sm text-gray-600">
                 {reachedEnd ? 'You reached the end of the PDF.' : 'Keep scrolling to reach the end of the PDF.'}

@@ -137,6 +137,8 @@
 
 html {
   font-size: var(--font-size);
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 @layer base {
@@ -145,6 +147,8 @@ html {
   }
   body {
     @apply bg-background text-foreground;
+    max-width: 100%;
+    overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;

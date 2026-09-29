@@ -48,6 +48,7 @@ type ModelDefinition = {
   accent: string;
   tint: string;
   hoverTint: string;
+  selectable?: boolean;
 };
 
 type Conversation = {
@@ -140,9 +141,27 @@ type MultiJudgeAssessment = {
 
 const MODELS: ModelDefinition[] = [
   {
-    id: 'gpt-5.2-chat',
-    label: 'OpenAI gpt-5.2-chat',
-    shortLabel: 'GPT 5.2',
+    id: 'gpt-6-sol',
+    label: 'OpenAI GPT-6 Sol',
+    shortLabel: 'GPT-6 Sol',
+    provider: 'OpenAI',
+    accent: '#059669',
+    tint: 'bg-emerald-50 border-emerald-200',
+    hoverTint: 'hover:border-emerald-300 hover:bg-emerald-100/70',
+  },
+  {
+    id: 'gpt-6-luna',
+    label: 'OpenAI GPT-6 Luna',
+    shortLabel: 'GPT-6 Luna',
+    provider: 'OpenAI',
+    accent: '#0891b2',
+    tint: 'bg-cyan-50 border-cyan-200',
+    hoverTint: 'hover:border-cyan-300 hover:bg-cyan-100/70',
+  },
+  {
+    id: 'gpt-5.6-sol',
+    label: 'OpenAI GPT-5.6 Sol',
+    shortLabel: 'GPT-5.6 Sol',
     provider: 'OpenAI',
     accent: '#eab308',
     tint: 'bg-amber-50 border-amber-200',
@@ -152,7 +171,7 @@ const MODELS: ModelDefinition[] = [
     id: 'gpt-5.6-terra',
     label: 'OpenAI GPT-5.6 Terra',
     shortLabel: 'GPT-5.6 Terra',
-    provider: 'Azure OpenAI',
+    provider: 'OpenAI',
     accent: '#0f766e',
     tint: 'bg-teal-50 border-teal-200',
     hoverTint: 'hover:border-teal-300 hover:bg-teal-100/70',
@@ -161,10 +180,21 @@ const MODELS: ModelDefinition[] = [
     id: 'gpt-5.6-luna',
     label: 'OpenAI GPT-5.6 Luna',
     shortLabel: 'GPT-5.6 Luna',
-    provider: 'Azure OpenAI',
+    provider: 'OpenAI',
     accent: '#f97316',
     tint: 'bg-orange-50 border-orange-200',
     hoverTint: 'hover:border-orange-300 hover:bg-orange-100/70',
+  },
+  // Retained only so older saved runs still render with their original label.
+  {
+    id: 'gpt-5.2-chat',
+    label: 'OpenAI gpt-5.2-chat',
+    shortLabel: 'GPT 5.2',
+    provider: 'Azure OpenAI',
+    accent: '#64748b',
+    tint: 'bg-slate-50 border-slate-200',
+    hoverTint: 'hover:border-slate-300 hover:bg-slate-100/70',
+    selectable: false,
   },
   {
     id: 'gemini-2.5-flash',
@@ -223,13 +253,13 @@ const MODELS: ModelDefinition[] = [
 ];
 
 const DEFAULT_AVAILABLE_MODEL_IDS = MODELS
-  .filter((model) => model.id !== 'gpt-5.6-terra' && model.id !== 'gpt-5.6-luna')
+  .filter((model) => model.selectable !== false)
   .map((model) => model.id);
 
 const DEFAULT_SYNTHESIS_PROMPT =
   'Analyze the selected responses and synthesize one comprehensive, accurate answer. Highlight consensus, preserve useful differences, and resolve conflicts using the strongest supported reasoning.';
 
-function modelDefinition(modelId?: string | null) {
+function modelDefinition(modelId?: string | null): ModelDefinition {
   return MODELS.find((model) => model.id === modelId) || {
     id: modelId || 'unknown',
     label: modelId || 'Unknown model',
@@ -379,12 +409,12 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   const [activeConversationId, setActiveConversationId] = useState('');
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [availableModelIds, setAvailableModelIds] = useState<string[]>(DEFAULT_AVAILABLE_MODEL_IDS);
-  const [selectedResponseModels, setSelectedResponseModels] = useState<string[]>(['claude-opus-4.5']);
+  const [selectedResponseModels, setSelectedResponseModels] = useState<string[]>(['gpt-6-sol']);
   const [selectedTargetRunId, setSelectedTargetRunId] = useState('');
   const [judgeMode, setJudgeMode] = useState<JudgeMode>('multi');
   const [judgeModels, setJudgeModels] = useState<string[]>([
     'claude-opus-4.5',
-    'gpt-5.2-chat',
+    'gpt-6-sol',
     'gemini-2.5-flash',
   ]);
   const [orchestratorModelId, setOrchestratorModelId] = useState('claude-opus-4.5');
@@ -436,7 +466,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
   );
 
   const availableModels = useMemo(
-    () => MODELS.filter((model) => availableModelIds.includes(model.id)),
+    () => MODELS.filter((model) => model.selectable !== false && availableModelIds.includes(model.id)),
     [availableModelIds]
   );
 
@@ -720,23 +750,28 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     const knownIds = Array.isArray(result.modelIds)
       ? result.modelIds.filter((modelId) => MODELS.some((model) => model.id === modelId))
       : [];
-    if (!knownIds.length) return;
+    const selectableKnownIds = knownIds.filter(
+      (modelId) => modelDefinition(modelId).selectable !== false
+    );
+    if (!selectableKnownIds.length) return;
 
     setAvailableModelIds(knownIds);
     setSelectedResponseModels((current) => {
-      const filtered = current.filter((modelId) => knownIds.includes(modelId)).slice(0, 3);
-      return filtered.length ? filtered : [knownIds[0]];
+      const filtered = current.filter((modelId) => selectableKnownIds.includes(modelId)).slice(0, 3);
+      return filtered.length ? filtered : [selectableKnownIds[0]];
     });
     setJudgeModels((current) => {
-      const filtered = current.filter((modelId) => knownIds.includes(modelId));
-      const targetCount = judgeMode === 'single' ? 1 : Math.min(3, knownIds.length);
-      for (const modelId of knownIds) {
+      const filtered = current.filter((modelId) => selectableKnownIds.includes(modelId));
+      const targetCount = judgeMode === 'single' ? 1 : Math.min(3, selectableKnownIds.length);
+      for (const modelId of selectableKnownIds) {
         if (filtered.length >= targetCount) break;
         if (!filtered.includes(modelId)) filtered.push(modelId);
       }
       return filtered.slice(0, targetCount);
     });
-    setOrchestratorModelId((current) => current && knownIds.includes(current) ? current : knownIds[0]);
+    setOrchestratorModelId((current) =>
+      current && selectableKnownIds.includes(current) ? current : selectableKnownIds[0]
+    );
   }
 
   function startNewChat() {
@@ -787,7 +822,12 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
     const savedModels = saved.responseModelIds;
     if (Array.isArray(savedModels) && savedModels.length) {
       const enabledSavedModels = savedModels
-        .filter((item): item is string => typeof item === 'string' && availableModelIds.includes(item))
+        .filter(
+          (item): item is string =>
+            typeof item === 'string' &&
+            availableModelIds.includes(item) &&
+            modelDefinition(item).selectable !== false
+        )
         .slice(0, 3);
       if (enabledSavedModels.length) setSelectedResponseModels(enabledSavedModels);
     }

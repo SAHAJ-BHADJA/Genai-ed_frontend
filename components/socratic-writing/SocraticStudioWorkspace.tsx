@@ -540,7 +540,7 @@ export default function SocraticStudioWorkspace({
           });
         },
         onError: (message: string) => {
-          throw new Error(message);
+          throw new Error(message.trim() || 'The AI tutor could not complete the response. Please try again.');
         },
       };
 
@@ -573,7 +573,8 @@ export default function SocraticStudioWorkspace({
         ...current,
         ledger: current.ledger.filter((entry) => entry.id !== replyClientId),
       }));
-      toast.error(error instanceof Error ? error.message : 'Failed to reach the AI tutor.');
+      const errorMessage = error instanceof Error ? error.message.trim() : '';
+      toast.error(errorMessage || 'Failed to reach the AI tutor. Please try again.');
     } finally {
       setSendingMessage(false);
     }
@@ -815,7 +816,7 @@ export default function SocraticStudioWorkspace({
       }
 
       const savedPayload = await saveStudentSocraticWorkspace(workspaceId, sessionToSave);
-      const preparedPayload = await prepareSocraticFinalQuiz(savedPayload.workspaceId, sessionToSave);
+      const preparedPayload = await prepareSocraticFinalQuiz(savedPayload.workspaceId);
       setBlueprint(preparedPayload.blueprint);
       setSession(recomputeStageStatuses(preparedPayload.session, preparedPayload.blueprint));
       setReadOnly(preparedPayload.readOnly);

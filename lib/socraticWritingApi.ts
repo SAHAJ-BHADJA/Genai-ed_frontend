@@ -169,7 +169,7 @@ const apiRequest = async <T>(path: string, init?: RequestInit): Promise<T> => {
     let detail = raw;
     try {
       const parsed = JSON.parse(raw) as { detail?: string };
-      detail = parsed.detail || raw;
+      detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
     } catch {
       // Keep raw text when the body is not JSON.
     }
@@ -177,7 +177,7 @@ const apiRequest = async <T>(path: string, init?: RequestInit): Promise<T> => {
       await clearExpiredSocraticSession();
       throw new Error('Your login session expired. Please sign in again.');
     }
-    throw new Error(detail || `Request failed with status ${response.status}`);
+    throw new Error(detail || `Request failed with status ${response.status}. Please try again.`);
   }
 
   return (await response.json()) as T;
@@ -299,6 +299,9 @@ export const sendSocraticCoachMessage = async (
     body: JSON.stringify({ stage, input, draftExcerpt, promptClientId, replyClientId }),
   });
 
+const SOCRATIC_COACH_ERROR = 'The AI tutor could not complete the response. Please try again.';
+const SOCRATIC_COACH_TIMEOUT_MS = 105_000;
+
 const readSocraticCoachStream = async (
   response: Response,
   handlers: {
@@ -322,6 +325,7 @@ const readSocraticCoachStream = async (
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let terminalEventReceived = false;
 
   const processEvent = (block: string) => {
     const lines = block.split('\n');
@@ -338,18 +342,21 @@ const readSocraticCoachStream = async (
     const payload = JSON.parse(dataParts.join('\n')) as
       | { type: 'delta'; text: string }
       | { type: 'done'; reply: string; entries: SocraticStudioSession['ledger'] }
-      | { type: 'error'; message: string };
+      | { type: 'error'; message?: string }
+      | { type: 'heartbeat' };
 
     if (eventName === 'delta' && payload.type === 'delta') {
       handlers.onDelta(payload.text);
       return;
     }
     if (eventName === 'done' && payload.type === 'done') {
+      terminalEventReceived = true;
       handlers.onDone({ reply: payload.reply, entries: payload.entries });
       return;
     }
     if (eventName === 'error' && payload.type === 'error') {
-      handlers.onError(payload.message);
+      terminalEventReceived = true;
+      handlers.onError(payload.message?.trim() || SOCRATIC_COACH_ERROR);
     }
   };
 
@@ -365,6 +372,46 @@ const readSocraticCoachStream = async (
       if (block) processEvent(block);
       splitIndex = buffer.indexOf('\n\n');
     }
+  }
+
+  buffer += decoder.decode();
+  const finalBlock = buffer.trim();
+  if (finalBlock) processEvent(finalBlock);
+  if (!terminalEventReceived) {
+    throw new Error('The AI tutor connection closed before the response completed. Please try again.');
+  }
+};
+
+const fetchSocraticCoachStream = async (
+  url: string,
+  token: string,
+  body: Record<string, unknown>,
+  handlers: {
+    onDelta: (chunk: string) => void;
+    onDone: (payload: { reply: string; entries: SocraticStudioSession['ledger'] }) => void;
+    onError: (message: string) => void;
+  },
+) => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), SOCRATIC_COACH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    await readSocraticCoachStream(response, handlers);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('The AI tutor did not complete the response in time. Please try again.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 };
 
@@ -383,16 +430,12 @@ export const streamSocraticCoachMessage = async (
 ) => {
   const token = await getAccessToken();
   const base = requireBackendBase();
-  const response = await fetch(`${base}/api/socratic/student/workspace/${workspaceId}/coach/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ stage, input, draftExcerpt, promptClientId, replyClientId }),
-  });
-
-  await readSocraticCoachStream(response, handlers);
+  await fetchSocraticCoachStream(
+    `${base}/api/socratic/student/workspace/${workspaceId}/coach/stream`,
+    token,
+    { stage, input, draftExcerpt, promptClientId, replyClientId },
+    handlers,
+  );
 };
 
 export const streamSocraticPreviewCoachMessage = async (
@@ -411,13 +454,10 @@ export const streamSocraticPreviewCoachMessage = async (
 ) => {
   const token = await getAccessToken();
   const base = requireBackendBase();
-  const response = await fetch(`${base}/api/socratic/educator/preview/coach/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
+  await fetchSocraticCoachStream(
+    `${base}/api/socratic/educator/preview/coach/stream`,
+    token,
+    {
       blueprint,
       session,
       stage,
@@ -425,10 +465,9 @@ export const streamSocraticPreviewCoachMessage = async (
       draftExcerpt,
       promptClientId,
       replyClientId,
-    }),
-  });
-
-  await readSocraticCoachStream(response, handlers);
+    },
+    handlers,
+  );
 };
 
 export const submitSocraticWorkspace = async (workspaceId: string) =>

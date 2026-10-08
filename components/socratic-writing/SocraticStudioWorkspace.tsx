@@ -340,7 +340,14 @@ export default function SocraticStudioWorkspace({
   }, [allResources, selectedResourceId]);
 
   useEffect(() => {
-    if (!workspaceId || !session || !blueprint || !hydratedRef.current || authExpiredRef.current) return;
+    if (
+      !workspaceId
+      || !session
+      || !blueprint
+      || !hydratedRef.current
+      || authExpiredRef.current
+      || sendingMessage
+    ) return;
 
     if (autosaveTimeoutRef.current) {
       clearTimeout(autosaveTimeoutRef.current);
@@ -368,7 +375,7 @@ export default function SocraticStudioWorkspace({
         clearTimeout(autosaveTimeoutRef.current);
       }
     };
-  }, [blueprint, onSavePreviewSession, previewMode, session, workspaceId]);
+  }, [blueprint, onSavePreviewSession, previewMode, sendingMessage, session, workspaceId]);
 
   const selectedStage = session?.activeStage || 'clarify';
   const stageSummary = useMemo(() => {
@@ -510,7 +517,7 @@ export default function SocraticStudioWorkspace({
               content: '',
               createdAt: now,
               entryType: 'chat_reply',
-              metadata: { model: 'gpt-5.6-sol' },
+              metadata: { model: blueprint.model },
             },
           ],
         };

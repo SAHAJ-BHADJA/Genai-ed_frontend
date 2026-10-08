@@ -112,15 +112,23 @@ export default function StudentOnlineQuizPage() {
 
   const pendingIntegrityEventRef = useRef<string | null>(null);
   const reloadHandledForAttemptRef = useRef<string | null>(null);
+  const attemptStartedOnThisPageRef = useRef<string | null>(null);
   const ignoreIntegrityUntilRef = useRef<number>(0);
 
   const isQuizInProgress = detail?.status === 'in_progress' && !!detail?.attempt;
 
   const enterFullscreen = async () => {
     if (typeof document === 'undefined') return false;
-    if (isEffectivelyFullscreen()) return true;
+    if (isEffectivelyFullscreen()) {
+      ignoreIntegrityUntilRef.current = Date.now() + 5000;
+      setIsFullscreenReady(true);
+      setNeedsFullscreenResume(false);
+      setIntegrityError(null);
+      pendingIntegrityEventRef.current = null;
+      return true;
+    }
 
-    ignoreIntegrityUntilRef.current = Date.now() + 2000;
+    ignoreIntegrityUntilRef.current = Date.now() + 5000;
 
     try {
       await document.documentElement.requestFullscreen();
@@ -161,10 +169,28 @@ export default function StudentOnlineQuizPage() {
   }, [detail?.attempt?.expires_at, detail?.status]);
 
   useEffect(() => {
+    let resumeCheckTimer: number | null = null;
+
     const syncFullscreenState = () => {
       const active = isEffectivelyFullscreen();
       setIsFullscreenReady(active);
-      if (isQuizInProgress && !active) {
+      if (active) {
+        if (resumeCheckTimer !== null) {
+          window.clearTimeout(resumeCheckTimer);
+          resumeCheckTimer = null;
+        }
+        setNeedsFullscreenResume(false);
+        return;
+      }
+
+      const gracePeriodRemaining = ignoreIntegrityUntilRef.current - Date.now();
+      if (gracePeriodRemaining > 0) {
+        if (resumeCheckTimer !== null) window.clearTimeout(resumeCheckTimer);
+        resumeCheckTimer = window.setTimeout(syncFullscreenState, gracePeriodRemaining + 50);
+        return;
+      }
+
+      if (isQuizInProgress) {
         setNeedsFullscreenResume(true);
       }
     };
@@ -173,6 +199,7 @@ export default function StudentOnlineQuizPage() {
     document.addEventListener('fullscreenchange', syncFullscreenState);
     window.addEventListener('resize', syncFullscreenState);
     return () => {
+      if (resumeCheckTimer !== null) window.clearTimeout(resumeCheckTimer);
       document.removeEventListener('fullscreenchange', syncFullscreenState);
       window.removeEventListener('resize', syncFullscreenState);
     };
@@ -247,6 +274,13 @@ export default function StudentOnlineQuizPage() {
   useEffect(() => {
     if (!isQuizInProgress || !profile || !detail?.attempt?.id) return;
 
+    // performance navigation type stays "reload" even when a new attempt is
+    // started later on the same page. Only restore-time attempts count here.
+    if (attemptStartedOnThisPageRef.current === detail.attempt.id) {
+      reloadHandledForAttemptRef.current = detail.attempt.id;
+      return;
+    }
+
     const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
     const isReload = navigationEntries.some((entry) => entry.type === 'reload');
     if (!isReload || reloadHandledForAttemptRef.current === detail.attempt.id) {
@@ -254,7 +288,7 @@ export default function StudentOnlineQuizPage() {
     }
 
     reloadHandledForAttemptRef.current = detail.attempt.id;
-    setNeedsFullscreenResume(true);
+    setNeedsFullscreenResume(!isEffectivelyFullscreen());
     void registerRefreshAttempt();
   }, [isQuizInProgress, profile?.id, detail?.attempt?.id]);
 
@@ -383,6 +417,11 @@ export default function StudentOnlineQuizPage() {
       return;
     }
 
+    // Do not treat the fullscreen transition as an exit while the start
+    // request changes the quiz into its in-progress state.
+    ignoreIntegrityUntilRef.current = Date.now() + 5000;
+    pendingIntegrityEventRef.current = null;
+    setNeedsFullscreenResume(false);
     setStarting(true);
     try {
       const response = await fetch(`${backendBase}/api/student/quiz/online/start`, {
@@ -400,7 +439,8 @@ export default function StudentOnlineQuizPage() {
 
       const payload = await response.json();
       const nextDetail = payload as OnlineQuizDetail;
-      ignoreIntegrityUntilRef.current = Date.now() + 2000;
+      ignoreIntegrityUntilRef.current = Date.now() + 5000;
+      attemptStartedOnThisPageRef.current = nextDetail.attempt?.id || null;
       pendingIntegrityEventRef.current = null;
       setDetail(nextDetail);
       setNeedsFullscreenResume(false);

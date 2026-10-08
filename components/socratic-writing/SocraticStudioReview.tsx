@@ -25,10 +25,12 @@ import {
   SOCRATIC_STAGE_ORDER,
   SocraticReviewState,
   SocraticStudioSession,
+  socraticHtmlToPlainText,
 } from '@/lib/socraticWriting';
 import {
   fetchSocraticAssignmentReview,
   gradeSocraticWorkspace,
+  retrySocraticProcessReport,
   SocraticReviewPayload,
   SocraticReviewStudent,
 } from '@/lib/socraticWritingApi';
@@ -42,23 +44,16 @@ const asString = (value: unknown) =>
   typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
 
 const asReportList = (value: unknown) => (Array.isArray(value) ? value : []);
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 
-const getReportItemParts = (item: unknown) => {
-  if (item && typeof item === 'object' && !Array.isArray(item)) {
-    const record = item as Record<string, unknown>;
-    return {
-      excerpt: asString(record.excerpt),
-      reason: asString(record.reason),
-      severity: asString(record.severity),
-      text: '',
-    };
-  }
-  return {
-    excerpt: '',
-    reason: '',
-    severity: '',
-    text: asString(item),
-  };
+const ratingClasses = (rating: string) => {
+  if (rating === 'strong' || rating === 'process-consistent') return 'bg-green-100 text-green-800';
+  if (rating === 'weak' || rating === 'process-inconsistent') return 'bg-red-100 text-red-800';
+  if (rating === 'mixed' || rating === 'needs-clarification') return 'bg-amber-100 text-amber-800';
+  return 'bg-gray-100 text-gray-700';
 };
 
 export default function SocraticStudioReview({
@@ -70,6 +65,7 @@ export default function SocraticStudioReview({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [reviewState, setReviewState] = useState<SocraticReviewState>(createInitialReviewState());
   const [saving, setSaving] = useState(false);
+  const [retryingReport, setRetryingReport] = useState(false);
 
   useEffect(() => {
     void loadReview();
@@ -94,6 +90,21 @@ export default function SocraticStudioReview({
     if (!payload || !selectedWorkspaceId) return null;
     return payload.students.find((student) => student.workspaceId === selectedWorkspaceId) || null;
   }, [payload, selectedWorkspaceId]);
+
+  const finalQuiz = selectedStudent?.finalQuiz;
+  const processReport = asRecord(finalQuiz?.reportJson);
+  const sourceFidelity = asRecord(processReport.source_fidelity);
+  const processConsistency = asRecord(processReport.process_consistency);
+  const demonstratedUnderstanding = asRecord(processReport.demonstrated_understanding);
+  const overallReview = asRecord(processReport.overall_review);
+  const structuredClarificationItems = [
+    ...asReportList(sourceFidelity.unsupported_or_unclear_claims),
+    ...asReportList(processConsistency.clarification_items),
+  ];
+  const clarificationItems = structuredClarificationItems.length
+    ? structuredClarificationItems
+    : asReportList(processReport.ai_generated_red_flags);
+  const legacyAssessment = asString(processReport.ai_authenticity_assessment);
 
   useEffect(() => {
     setReviewState(selectedStudent?.review || createInitialReviewState());
@@ -157,6 +168,7 @@ export default function SocraticStudioReview({
         selectedStudent.workspaceId,
         normalizedScore,
         reviewState.feedback,
+        selectedStudent.currentSubmissionSnapshotId,
       );
 
       setPayload((current) => {
@@ -189,6 +201,24 @@ export default function SocraticStudioReview({
       toast.error(error instanceof Error ? error.message : 'Failed to save Socratic review.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRetryReport = async () => {
+    if (!selectedStudent?.currentSubmissionSnapshotId) return;
+    try {
+      setRetryingReport(true);
+      await retrySocraticProcessReport(
+        selectedStudent.workspaceId,
+        selectedStudent.currentSubmissionSnapshotId,
+      );
+      await loadReview();
+      toast.success('Process Consistency Review regenerated.');
+    } catch (error) {
+      console.error('Error retrying Socratic process report:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to regenerate the process review.');
+    } finally {
+      setRetryingReport(false);
     }
   };
 
@@ -370,131 +400,202 @@ export default function SocraticStudioReview({
                     Export PDF
                   </button>
                 </div>
-                <div
-                  className="rounded-2xl border border-gray-200 bg-gray-50 px-6 py-5 prose prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: selectedStudent.essayHtml || '<p>No draft yet.</p>' }}
-                />
+                <div className="whitespace-pre-wrap rounded-2xl border border-gray-200 bg-gray-50 px-6 py-5 text-sm leading-7 text-gray-800">
+                  {socraticHtmlToPlainText(selectedStudent.essayHtml) || 'No submitted essay.'}
+                </div>
               </div>
             </TabsContent>
 
             <TabsContent value="final-report" className="mt-4">
               <div className="space-y-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-950">Final Quiz & GPT-5.6 Sol Evaluation</h2>
+                  <h2 className="text-xl font-semibold text-gray-950">Process Consistency Review</h2>
                   <p className="text-sm text-gray-600">
-                    Educator-only report generated from the final essay, quiz attempt, ledger, notes, chats, and assignment materials.
+                    Evidence-based review of the submitted essay, sources, documented writing process, and demonstrated understanding.
                   </p>
                 </div>
-                {!selectedStudent.finalQuiz?.enabled ? (
+                {!selectedStudent.currentSubmissionSnapshotId && finalQuiz?.reportStatus !== 'ready' ? (
                   <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                    Final quiz reporting is not enabled for this assignment.
+                    The Process Consistency Review will be generated after the student submits the assignment.
                   </div>
                 ) : (
                   <>
-                    {selectedStudent.finalQuiz.reportStatus !== 'ready' && (
-                      <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                        The student submission is saved. GPT-5.6 Sol evaluation is generated in the background and will appear here when ready.
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950">
+                      This review evaluates consistency between the submitted work and the documented learning process. It does not determine whether AI authored the submission.
+                    </div>
+
+                    {finalQuiz?.reportStatus !== 'ready' && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        <div className="flex items-start gap-3">
+                          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            Process review is {finalQuiz?.reportStatus === 'failed' ? 'unavailable' : 'being generated'} for submission version {selectedStudent.currentSubmissionVersion || '—'}.
+                            {finalQuiz?.reportError ? ` ${finalQuiz.reportError}` : ''}
+                          </span>
+                        </div>
+                        {finalQuiz?.reportStatus !== 'processing' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRetryReport()}
+                            disabled={retryingReport || !selectedStudent.currentSubmissionSnapshotId}
+                            className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold text-amber-900 disabled:opacity-50"
+                          >
+                            {retryingReport ? 'Regenerating…' : 'Retry review'}
+                          </button>
+                        )}
                       </div>
                     )}
 
-                    <div className="grid md:grid-cols-3 gap-3">
+                    <div className="grid gap-3 md:grid-cols-4">
                       <div className="rounded-xl bg-gray-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quiz status</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Submission</div>
                         <div className="mt-2 text-lg font-semibold capitalize text-gray-950">
-                          {(selectedStudent.finalQuiz.status || 'not_ready').replace('_', ' ')}
+                          Version {selectedStudent.currentSubmissionVersion || '—'}
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quiz evidence</div>
+                        <div className="mt-2 text-lg font-semibold text-gray-950">
+                          {(finalQuiz?.quizKind || 'disabled').replaceAll('_', ' ')}
                         </div>
                       </div>
                       <div className="rounded-xl bg-gray-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quiz score</div>
                         <div className="mt-2 text-lg font-semibold text-gray-950">
-                          {selectedStudent.finalQuiz.quizScore !== null && selectedStudent.finalQuiz.quizScore !== undefined
-                            ? `${selectedStudent.finalQuiz.quizScore}${selectedStudent.finalQuiz.quizTotal ? ` / ${selectedStudent.finalQuiz.quizTotal}` : ''}`
-                            : 'Not submitted'}
+                          {finalQuiz?.quizScore !== null && finalQuiz?.quizScore !== undefined
+                            ? `${finalQuiz.quizScore}${finalQuiz.quizTotal ? ` / ${finalQuiz.quizTotal}` : ''}`
+                            : 'Not available'}
                         </div>
                       </div>
                       <div className="rounded-xl bg-gray-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Report</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Review</div>
                         <div className="mt-2 text-lg font-semibold capitalize text-gray-950">
-                          {(selectedStudent.finalQuiz.reportStatus || 'pending').replace('_', ' ')}
+                          {(finalQuiz?.reportStatus || 'pending').replace('_', ' ')}
                         </div>
                       </div>
                     </div>
 
-                    {asString(selectedStudent.finalQuiz.reportJson?.ai_authenticity_assessment) && (
-                      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-                        <h3 className="font-semibold text-blue-950">AI Authenticity Assessment</h3>
-                        <p className="mt-2 text-sm leading-6 text-blue-900">
-                          {asString(selectedStudent.finalQuiz.reportJson?.ai_authenticity_assessment)}
-                        </p>
-                      </div>
-                    )}
+                    {finalQuiz?.reportStatus === 'ready' && (
+                      <>
+                        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <h3 className="font-semibold text-gray-950">Overall Review</h3>
+                            <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${ratingClasses(asString(overallReview.status))}`}>
+                              {asString(overallReview.status).replaceAll('-', ' ') || 'Inconclusive'}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-gray-800">{asString(overallReview.rationale) || legacyAssessment}</p>
+                          <p className="mt-2 text-xs text-gray-600">Confidence: {asString(overallReview.confidence) || 'low'}</p>
+                          {asString(overallReview.limitations) && <p className="mt-3 text-sm leading-6 text-gray-600"><span className="font-semibold">Limitations:</span> {asString(overallReview.limitations)}</p>}
+                        </div>
 
-                    {asReportList(selectedStudent.finalQuiz.reportJson?.ai_generated_red_flags).length > 0 && (
-                      <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
-                        <h3 className="font-semibold text-red-950">AI-Generated Red Flags</h3>
-                        <div className="mt-3 space-y-3">
-                          {asReportList(selectedStudent.finalQuiz.reportJson?.ai_generated_red_flags).map((item, index) => {
-                            const parts = getReportItemParts(item);
+                        <div className="grid gap-4 lg:grid-cols-3">
+                          {[
+                            ['Source Fidelity', sourceFidelity],
+                            ['Process Consistency', processConsistency],
+                            ['Demonstrated Understanding', demonstratedUnderstanding],
+                          ].map(([label, section]) => {
+                            const record = section as Record<string, unknown>;
+                            const rating = asString(record.rating) || 'inconclusive';
                             return (
-                              <div key={index} className="rounded-xl bg-white/80 p-4 text-sm text-red-950">
-                                {parts.severity && (
-                                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-700">
-                                    Severity: {parts.severity}
+                              <div key={label as string} className="rounded-2xl border border-gray-200 bg-white p-5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h3 className="font-semibold text-gray-950">{label as string}</h3>
+                                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold capitalize ${ratingClasses(rating)}`}>{rating}</span>
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-gray-700">{asString(record.rationale)}</p>
+                                <p className="mt-3 text-xs text-gray-500">Confidence: {asString(record.confidence) || 'low'}</p>
+                                {asString(record.quiz_interpretation) && <p className="mt-3 text-sm leading-6 text-gray-600">{asString(record.quiz_interpretation)}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {asReportList(sourceFidelity.supported_claims).length > 0 && (
+                          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                            <h3 className="font-semibold text-emerald-950">Validated Source Support</h3>
+                            <div className="mt-3 space-y-3">
+                              {asReportList(sourceFidelity.supported_claims).map((item, index) => {
+                                const record = asRecord(item);
+                                return (
+                                  <div key={index} className="rounded-xl bg-white/80 p-4 text-sm text-emerald-950">
+                                    <blockquote className="border-l-4 border-emerald-300 pl-3 italic">{asString(record.essay_excerpt)}</blockquote>
+                                    <p className="mt-2"><span className="font-semibold capitalize">{asString(record.source_type).replaceAll('_', ' ')}:</span> {asString(record.source_excerpt)}</p>
+                                    <p className="mt-2 leading-6">{asString(record.explanation)}</p>
                                   </div>
-                                )}
-                                {parts.excerpt && (
-                                  <blockquote className="border-l-4 border-red-300 pl-3 italic text-red-900">
-                                    {parts.excerpt}
-                                  </blockquote>
-                                )}
-                                <p className="mt-2 leading-6">{parts.reason || parts.text}</p>
-                              </div>
-                            );
-                          })}
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                          <h3 className="font-semibold text-amber-950">Items Requiring Clarification</h3>
+                          {clarificationItems.length ? (
+                            <div className="mt-3 space-y-3">
+                              {clarificationItems.map((item, index) => {
+                                const record = asRecord(item);
+                                const excerpt = asString(record.essay_excerpt || record.excerpt);
+                                return (
+                                  <div key={index} className="rounded-xl bg-white/80 p-4 text-sm text-amber-950">
+                                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">Severity: {asString(record.severity)}</div>
+                                    {excerpt && <blockquote className="border-l-4 border-amber-300 pl-3 italic">{excerpt}</blockquote>}
+                                    <p className="mt-2 leading-6">{asString(record.reason)}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="mt-2 text-sm text-amber-900">No evidence-based clarification items were identified.</p>}
                         </div>
-                      </div>
+
+                        <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
+                          <h3 className="font-semibold text-green-950">Evidence of Student Development</h3>
+                          {(asReportList(processConsistency.development_signals).length
+                            ? asReportList(processConsistency.development_signals)
+                            : asReportList(processReport.human_authorship_signals)).length ? (
+                            <div className="mt-3 space-y-3">
+                              {(asReportList(processConsistency.development_signals).length
+                                ? asReportList(processConsistency.development_signals)
+                                : asReportList(processReport.human_authorship_signals)).map((item, index) => {
+                                const record = asRecord(item);
+                                const finalExcerpt = asString(record.final_excerpt || record.excerpt);
+                                return (
+                                  <div key={index} className="rounded-xl bg-white/80 p-4 text-sm text-green-950">
+                                    {finalExcerpt && <blockquote className="border-l-4 border-green-300 pl-3 italic">{finalExcerpt}</blockquote>}
+                                    {asString(record.earlier_evidence) && <p className="mt-2"><span className="font-semibold">Earlier evidence:</span> {asString(record.earlier_evidence)}</p>}
+                                    <p className="mt-2 leading-6">{asString(record.explanation || record.reason)}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="mt-2 text-sm text-green-900">No validated development excerpts were returned.</p>}
+                        </div>
+
+                        {asReportList(processReport.recommended_educator_actions).length > 0 && (
+                          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                            <h3 className="font-semibold text-blue-950">Recommended Educator Actions</h3>
+                            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-blue-900">
+                              {asReportList(processReport.recommended_educator_actions).map((item, index) => <li key={index}>{asString(item)}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {asString(processReport.system_notes) && (
+                          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                            <h3 className="font-semibold text-gray-950">System Notes</h3>
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">{asString(processReport.system_notes)}</p>
+                          </div>
+                        )}
+                      </>
                     )}
 
-                    {asReportList(selectedStudent.finalQuiz.reportJson?.human_authorship_signals).length > 0 && (
-                      <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
-                        <h3 className="font-semibold text-green-950">Human Authorship Signals</h3>
-                        <div className="mt-3 space-y-3">
-                          {asReportList(selectedStudent.finalQuiz.reportJson?.human_authorship_signals).map((item, index) => {
-                            const parts = getReportItemParts(item);
-                            return (
-                              <div key={index} className="rounded-xl bg-white/80 p-4 text-sm text-green-950">
-                                {parts.excerpt && (
-                                  <blockquote className="border-l-4 border-green-300 pl-3 italic text-green-900">
-                                    {parts.excerpt}
-                                  </blockquote>
-                                )}
-                                <p className="mt-2 leading-6">{parts.reason || parts.text}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedStudent.finalQuiz.systemIssue && (
+                    {finalQuiz?.systemIssue && (
                       <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        {selectedStudent.finalQuiz.systemIssue}
+                        {finalQuiz.systemIssue}
                       </div>
                     )}
 
-                    {selectedStudent.finalQuiz.reportText ? (
-                      <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                        <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-gray-800">
-                          {selectedStudent.finalQuiz.reportText}
-                        </pre>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                        The GPT-5.6 Sol evaluation report appears after the student submits the final quiz and final package.
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -635,19 +736,19 @@ export default function SocraticStudioReview({
             ))}
           </div>
 
-          {selectedStudent.finalQuiz?.enabled && (
+          {finalQuiz?.enabled && (
             <div className="rounded-xl border border-brand-maroon/20 bg-brand-maroon/5 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-brand-maroon">
                 <ShieldCheck className="h-4 w-4" />
                 Final Quiz
               </div>
               <div className="mt-2 text-sm capitalize text-gray-700">
-                Status: {selectedStudent.finalQuiz.status.replace('_', ' ')}
+                Status: {finalQuiz.status.replace('_', ' ')}
               </div>
-              {selectedStudent.finalQuiz.quizScore !== null && selectedStudent.finalQuiz.quizScore !== undefined && (
+              {finalQuiz.quizScore !== null && finalQuiz.quizScore !== undefined && (
                 <div className="mt-1 text-sm text-gray-700">
-                  Score: {selectedStudent.finalQuiz.quizScore}
-                  {selectedStudent.finalQuiz.quizTotal ? ` / ${selectedStudent.finalQuiz.quizTotal}` : ''}
+                  Score: {finalQuiz.quizScore}
+                  {finalQuiz.quizTotal ? ` / ${finalQuiz.quizTotal}` : ''}
                 </div>
               )}
             </div>
@@ -656,6 +757,9 @@ export default function SocraticStudioReview({
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-2">Score</label>
             <Input
+              type="number"
+              min={0}
+              max={payload.assignment.pointsPossible}
               value={reviewState.score}
               onChange={(event) => setReviewState((current) => ({ ...current, score: event.target.value }))}
               placeholder={`Out of ${payload.assignment.pointsPossible}`}

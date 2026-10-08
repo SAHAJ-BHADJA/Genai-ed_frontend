@@ -75,23 +75,29 @@ const resourceLabels = {
   source: 'Source',
 } satisfies Record<SocraticResource['type'], string>;
 
+const SOCRATIC_MODEL_OPTIONS = [
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+];
+
 const promptHelp = {
   globalPrompt:
-    'Used in every GPT-5.6 Sol call for this assignment. Controls overall tone, boundaries, formatting, and how directly the AI tutor helps students.',
+    'Used in every selected-model call for this assignment. Controls overall tone, boundaries, formatting, and how directly the AI tutor helps students.',
   chatResponseInstructions:
     'Added to normal student chat turns after the student message. Use this to control answer style, length, formatting, and whether the AI tutor must end with a question.',
   readinessGenerationSystemPrompt:
-    'Used when the educator clicks Generate Goals & Student Messages. It tells GPT-5.6 Sol what kind of hidden goals to create before opening messages are generated.',
+    'Used when the educator clicks Generate Goals & Student Messages. It tells the selected model what kind of hidden goals to create before opening messages are generated.',
   readinessGenerationUserPrompt:
-    'The exact task sent to GPT-5.6 Sol for readiness generation. Keep the JSON shape if you want the app to parse the response reliably.',
+    'The exact task sent to the selected model for readiness generation. Keep the JSON shape if you want the app to parse the response reliably.',
   starterResponseInstructions:
-    'Added when generating the first visible GPT-5.6 Sol message for each stage. Use it to control formatting and how the opening message should sound.',
+    'Added when generating the first visible AI tutor message for each stage. Use it to control formatting and how the opening message should sound.',
   stageRuntimePrompt:
-    'Used during live student chat for this stage. This is the main behavior contract for what GPT-5.6 Sol should and should not do in the stage.',
+    'Used during live student chat for this stage. This is the main behavior contract for what the selected model should and should not do in the stage.',
   stageStarterPrompt:
-    'Used only when generating the first visible GPT-5.6 Sol message for this stage. It does not run on every chat reply.',
+    'Used only when generating the first visible AI tutor message for this stage. It does not run on every chat reply.',
   stageReadinessPrompt:
-    'Used when regenerating hidden readiness goals for this stage. It tells GPT-5.6 Sol what understanding signals to create for the hidden goals. Students never see this prompt.',
+    'Used when regenerating hidden readiness goals for this stage. It tells the selected model what understanding signals to create for the hidden goals. Students never see this prompt.',
   readinessGuidance:
     'Used only when regenerating hidden readiness goals for this stage. Write what understanding the AI tutor should silently steer toward before suggesting the next stage.',
   starterGuidance:
@@ -440,11 +446,17 @@ export default function SocraticStudioConfigurator({
           <p className="text-sm font-medium text-gray-900">Clarify - Research - Build - Write</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Model</p>
-          <p className="text-sm font-medium text-gray-900 inline-flex items-center gap-2">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Model</label>
+          <div className="flex items-center gap-2">
             <Bot className="w-4 h-4 text-brand-maroon" />
-            GPT-5.6 Sol
-          </p>
+            <select
+              value={blueprint.model}
+              onChange={(event) => onChange({ ...blueprint, model: event.target.value })}
+              className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900"
+            >
+              {SOCRATIC_MODEL_OPTIONS.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+            </select>
+          </div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
@@ -459,10 +471,10 @@ export default function SocraticStudioConfigurator({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-gray-900">Advanced AI Prompt Controls</h3>
-              <PromptHelp text="These are the actual backend prompt layers for this assignment. Edit carefully. If GPT-5.6 Sol starts behaving strangely, reset the changed section to default." />
+              <PromptHelp text="These are the actual backend prompt layers for this assignment. Edit carefully. If the AI tutor starts behaving strangely, reset the changed section to default." />
             </div>
             <p className="mt-1 text-sm text-gray-600">
-              Tune GPT-5.6 Sol behavior without code changes. These prompts apply only to this Socratic assignment.
+              Tune the selected model without code changes. These prompts apply only to this Socratic assignment.
             </p>
           </div>
           <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
@@ -843,7 +855,7 @@ export default function SocraticStudioConfigurator({
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Stage Policies & Student Messages</h3>
             <p className="text-sm text-gray-600">
-              Default prompts are locked. Generate editable hidden readiness goals and the first GPT-5.6 Sol
+              Default prompts are locked. Generate editable hidden readiness goals and the first AI tutor
               message students will see in each stage with one click.
             </p>
           </div>
@@ -944,7 +956,7 @@ export default function SocraticStudioConfigurator({
                         <div>
                           <h5 className="text-sm font-semibold text-gray-900">Hidden readiness goals</h5>
                           <p className="text-xs text-gray-500">
-                            GPT-5.6 Sol uses these private goals to decide when the student is ready to move forward.
+                            The AI tutor uses these private goals to decide when the student is ready to move forward.
                           </p>
                         </div>
                       </div>
@@ -1156,7 +1168,7 @@ export default function SocraticStudioConfigurator({
                           [stage]: sourceSignature,
                         }));
                       }}
-                      placeholder={`Generate or write the first GPT-5.6 Sol message for ${stageConfig.label}.`}
+                      placeholder={`Generate or write the first AI tutor message for ${stageConfig.label}.`}
                       className="min-h-[420px] resize-y text-sm leading-relaxed"
                     />
                     <p className="mt-3 text-xs text-gray-500">

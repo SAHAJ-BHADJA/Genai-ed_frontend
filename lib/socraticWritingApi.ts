@@ -40,6 +40,20 @@ export type SocraticReviewStudent = {
   studentEmail: string | null;
   status: string;
   submittedAt: string | null;
+  currentSubmissionSnapshotId: string | null;
+  currentSubmissionVersion: number | null;
+  submissionHistory: Array<{
+    id: string;
+    submission_version: number;
+    essay_hash: string;
+    quiz_kind: string;
+    report_status: string;
+    report_version: number;
+    report_model_id: string | null;
+    report_error: string | null;
+    report_generated_at: string | null;
+    submitted_at: string;
+  }>;
   stageStatuses: SocraticStudioSession['stageStatuses'];
   essayHtml: string;
   essayJson: string;
@@ -491,13 +505,32 @@ export const gradeSocraticWorkspace = async (
   workspaceId: string,
   score: number | null,
   feedback: string,
+  submissionSnapshotId?: string | null,
 ) =>
   apiRequest<{
     workspaceId: string;
     score: number | null;
     feedback: string | null;
     gradedAt: string;
+    submissionSnapshotId: string;
+    submissionVersion: number;
   }>(`/api/socratic/educator/workspace/${workspaceId}/grade`, {
     method: 'POST',
-    body: JSON.stringify({ score, feedback }),
+    body: JSON.stringify({ score, feedback, submissionSnapshotId }),
+  });
+
+export const retrySocraticProcessReport = async (
+  workspaceId: string,
+  submissionSnapshotId?: string | null,
+) =>
+  apiRequest<{
+    workspaceId: string;
+    submissionSnapshotId: string;
+    submissionVersion: number;
+    reportStatus: string;
+    reportGeneratedAt: string | null;
+    reportError: string | null;
+  }>(`/api/socratic/educator/workspace/${workspaceId}/report/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ submissionSnapshotId }),
   });

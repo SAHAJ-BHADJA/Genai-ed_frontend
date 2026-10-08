@@ -157,7 +157,7 @@ export default function EducatorDashboard() {
     },
     {
       title: 'Socratic Writing Studio',
-      description: 'Create staged writing assignments with guided Claude support.',
+      description: 'Create staged writing assignments with guided AI tutor support.',
       path: '/educator/socratic-writing',
       icon: PencilLine,
       iconClassName: 'bg-amber-500',

@@ -90,25 +90,10 @@ const asString = (value: unknown) =>
   typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
 
 const asReportList = (value: unknown) => (Array.isArray(value) ? value : []);
-
-const getReportItemParts = (item: unknown) => {
-  if (item && typeof item === 'object' && !Array.isArray(item)) {
-    const record = item as Record<string, unknown>;
-    return {
-      excerpt: asString(record.excerpt),
-      reason: asString(record.reason),
-      severity: asString(record.severity),
-      text: '',
-    };
-  }
-
-  return {
-    excerpt: '',
-    reason: '',
-    severity: '',
-    text: asString(item),
-  };
-};
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 
 const toDateTimeLocalValue = (value: string | null) => {
   if (!value) return '';
@@ -139,16 +124,26 @@ const SocraticInlineReviewCard = ({
   student,
 }: SocraticInlineReviewCardProps) => {
   const finalQuiz = student?.finalQuiz;
-  const aiAssessment = asString(finalQuiz?.reportJson?.ai_authenticity_assessment);
-  const redFlags = asReportList(finalQuiz?.reportJson?.ai_generated_red_flags);
+  const report = asRecord(finalQuiz?.reportJson);
+  const overallReview = asRecord(report.overall_review);
+  const sourceFidelity = asRecord(report.source_fidelity);
+  const processConsistency = asRecord(report.process_consistency);
+  const structuredClarificationItems = [
+    ...asReportList(sourceFidelity.unsupported_or_unclear_claims),
+    ...asReportList(processConsistency.clarification_items),
+  ];
+  const clarificationItems = structuredClarificationItems.length
+    ? structuredClarificationItems
+    : asReportList(report.ai_generated_red_flags);
+  const legacyAssessment = asString(report.ai_authenticity_assessment);
 
   return (
     <div className="rounded-2xl border border-purple-200 bg-purple-50/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="font-semibold text-purple-950">Socratic final review</h4>
+          <h4 className="font-semibold text-purple-950">Process Consistency Review</h4>
           <p className="text-sm text-purple-800">
-            Essay, final quiz, AI report, and ledger for this student.
+            Source fidelity, documented development, and demonstrated understanding for this submission.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -205,7 +200,7 @@ const SocraticInlineReviewCard = ({
               </p>
             </div>
             <div className="rounded-xl bg-white p-4 ring-1 ring-purple-100">
-              <p className="text-xs font-semibold uppercase tracking-wide text-purple-500">AI report</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-purple-500">Process review</p>
               <p className="mt-2 font-semibold capitalize text-gray-950">
                 {(finalQuiz?.reportStatus || 'pending').replace('_', ' ')}
               </p>
@@ -214,7 +209,7 @@ const SocraticInlineReviewCard = ({
 
           {finalQuiz?.reportStatus !== 'ready' && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-              The final package is saved. Claude’s educator-only report may still be generating; refresh this section after a few seconds.
+              Process review is being generated for submission version {student.currentSubmissionVersion || '—'}. Refresh this section after a few seconds.
             </div>
           )}
 
@@ -225,32 +220,36 @@ const SocraticInlineReviewCard = ({
             </div>
           )}
 
-          {aiAssessment && (
+          {finalQuiz?.reportStatus === 'ready' && (
             <div className="rounded-xl border border-blue-200 bg-white p-4">
-              <p className="font-semibold text-blue-950">AI authenticity assessment</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-blue-900">{aiAssessment}</p>
+              <p className="font-semibold text-blue-950">Overall Review</p>
+              <p className="mt-2 text-sm font-semibold capitalize text-blue-900">
+                {asString(overallReview.status).replaceAll('-', ' ') || 'Inconclusive'} · {asString(overallReview.confidence) || 'low'} confidence
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-blue-900">{asString(overallReview.rationale) || legacyAssessment}</p>
             </div>
           )}
 
-          <div className="rounded-xl border border-red-200 bg-white p-4">
-            <p className="font-semibold text-red-950">AI-generated red flags</p>
-            {redFlags.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-white p-4">
+            <p className="font-semibold text-amber-950">Items Requiring Clarification</p>
+            {clarificationItems.length > 0 ? (
               <div className="mt-3 space-y-3">
-                {redFlags.map((item, index) => {
-                  const parts = getReportItemParts(item);
+                {clarificationItems.map((item, index) => {
+                  const record = asRecord(item);
+                  const excerpt = asString(record.essay_excerpt || record.excerpt);
                   return (
-                    <div key={index} className="rounded-lg bg-red-50 p-3 text-sm text-red-950">
-                      {parts.severity && (
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-700">
-                          Severity: {parts.severity}
+                    <div key={index} className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
+                      {asString(record.severity) && (
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                          Severity: {asString(record.severity)}
                         </p>
                       )}
-                      {parts.excerpt && (
-                        <blockquote className="border-l-4 border-red-300 pl-3 italic text-red-900">
-                          {parts.excerpt}
+                      {excerpt && (
+                        <blockquote className="border-l-4 border-amber-300 pl-3 italic text-amber-900">
+                          {excerpt}
                         </blockquote>
                       )}
-                      <p className="mt-2 leading-6">{parts.reason || parts.text}</p>
+                      <p className="mt-2 leading-6">{asString(record.reason)}</p>
                     </div>
                   );
                 })}
@@ -258,10 +257,14 @@ const SocraticInlineReviewCard = ({
             ) : (
               <p className="mt-2 text-sm text-gray-600">
                 {finalQuiz?.reportStatus === 'ready'
-                  ? 'Claude did not return AI-generated red flags for this submission.'
-                  : 'Red flags will appear here when the Claude report is ready.'}
+                  ? 'No evidence-based clarification items were identified.'
+                  : 'Clarification items will appear when the process review is ready.'}
               </p>
             )}
+          </div>
+
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
+            This review evaluates consistency between the submitted work and the documented learning process. It does not determine whether AI authored the submission.
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-4">

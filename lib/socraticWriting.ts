@@ -63,7 +63,7 @@ export interface SocraticStudioBlueprint {
   dueAt: string;
   pointsPossible: number;
   wordCount: number;
-  model: 'GPT-5.6 Sol';
+  model: string;
   promptControls: SocraticPromptControls;
   stages: Record<SocraticStageKey, SocraticStageConfig>;
   resources: SocraticResource[];
@@ -149,6 +149,11 @@ export interface SocraticFinalQuizState {
   quizScore: number | null;
   quizTotal: number | null;
   systemIssue: string | null;
+  quizKind?: 'individualized' | 'diagnostic_fallback' | 'generation_failed' | 'disabled' | null;
+  submissionSnapshotId?: string | null;
+  submissionVersion?: number | null;
+  reportVersion?: number | null;
+  reportError?: string | null;
   reportText?: string | null;
   reportJson?: Record<string, unknown>;
 }
@@ -201,7 +206,7 @@ const BLUEPRINT_KEY_PREFIX = `${STORAGE_PREFIX}:blueprint:`;
 const CREATED_RESOURCE_KEY = `${STORAGE_PREFIX}:created-resource`;
 const PREVIEW_KEY = `${STORAGE_PREFIX}:educator-preview`;
 
-export const DEFAULT_SOCRATIC_GLOBAL_PROMPT = `You are GPT-5.6 Sol inside a Socratic Writing Studio. Your role is to help the student understand the assignment, use the provided materials well, and improve their own thinking without doing the assignment for them.
+export const DEFAULT_SOCRATIC_GLOBAL_PROMPT = `You are an AI tutor inside a Socratic Writing Studio. Your role is to help the student understand the assignment, use the provided materials well, and improve their own thinking without doing the assignment for them.
 
 GLOBAL RULES
 - Start by being useful. If the student asks what the assignment is about, what to do next, or what a source means, answer directly and clearly before asking follow-up questions.
@@ -733,7 +738,7 @@ export const createDefaultStudioBlueprint = (
   dueAt: input.dueAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   pointsPossible: input.pointsPossible || 100,
   wordCount: input.wordCount || 1500,
-  model: 'GPT-5.6 Sol',
+  model: 'gpt-5.6-sol',
   promptControls: { ...DEFAULT_SOCRATIC_PROMPT_CONTROLS },
   stages: {
     clarify: { ...STAGE_BASE_CONFIG.clarify, aiAllowed: true },
@@ -801,7 +806,7 @@ const createPreviewStarterEntry = (
     createdAt: nowIso(),
     entryType: 'chat_reply',
     metadata: {
-      model: 'gpt-5.6-sol',
+      model: blueprint.model,
       previewStarter: true,
       savedStarterResponse: hasSavedStarter,
       fallbackStarterResponse: !hasSavedStarter,
@@ -912,11 +917,33 @@ export const getMockCoachReply = (
   return `Read your draft back as a skeptical reader. Which paragraph is doing real argumentative work, and which one mostly repeats or drifts? Choose one weak spot and revise the logic before revising the style. ${summary}`;
 };
 
+export const socraticHtmlToPlainText = (value: string) => value
+  .replace(/<\s*br\s*\/?>/gi, '\n')
+  .replace(/<\/(p|div|li|h[1-6]|blockquote)>/gi, '\n')
+  .replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;/gi, "'")
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const safePrintableText = (value: string) => escapeHtml(value).replace(/\n/g, '<br />');
+
 export const buildPdfHtml = (blueprint: SocraticStudioBlueprint, session: SocraticStudioSession) => `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>${blueprint.assignmentTitle}</title>
+    <title>${escapeHtml(blueprint.assignmentTitle)}</title>
     <style>
       body { font-family: Arial, sans-serif; max-width: 900px; margin: 32px auto; padding: 0 24px; color: #111827; }
       h1 { font-size: 30px; margin-bottom: 8px; }
@@ -927,15 +954,15 @@ export const buildPdfHtml = (blueprint: SocraticStudioBlueprint, session: Socrat
     </style>
   </head>
   <body>
-    <h1>${blueprint.assignmentTitle}</h1>
-    <div class="meta">${blueprint.courseCode} - ${blueprint.courseTitle} | Due ${new Date(blueprint.dueAt).toLocaleString()}</div>
-    ${session.essayHtml}
+    <h1>${escapeHtml(blueprint.assignmentTitle)}</h1>
+    <div class="meta">${escapeHtml(blueprint.courseCode)} - ${escapeHtml(blueprint.courseTitle)} | Due ${escapeHtml(new Date(blueprint.dueAt).toLocaleString())}</div>
+    <div>${safePrintableText(socraticHtmlToPlainText(session.essayHtml))}</div>
     <section class="notes">
       <h2>Notebook</h2>
       ${session.notes.map((note) => `
         <div class="note">
-          <div class="badge">${blueprint.stages[note.stage].label}</div>
-          <div>${note.content}</div>
+          <div class="badge">${escapeHtml(blueprint.stages[note.stage].label)}</div>
+          <div>${safePrintableText(note.content)}</div>
         </div>
       `).join('')}
     </section>

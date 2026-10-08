@@ -6,6 +6,7 @@ import { Profile, supabase } from '@/lib/supabase';
 import { AlertTriangle, CheckCircle2, Clock, FileCheck, Loader2, Monitor } from 'lucide-react';
 
 const backendBase = getBackendBase();
+const FULLSCREEN_TOLERANCE_PX = 8;
 
 interface OnlineQuizQuestion {
   question_index: number;
@@ -99,6 +100,27 @@ const getFullscreenElement = (): Element | null => {
 };
 
 const hasFullscreenElement = () => Boolean(getFullscreenElement());
+
+// Browsers do not expose document.fullscreenElement when the user enters
+// browser-window fullscreen (for example, F11). Treat that state as fullscreen
+// too so a valid fullscreen session is not blocked by the quiz guard.
+const isEffectivelyFullscreen = () => {
+  if (hasFullscreenElement()) return true;
+  if (typeof window === 'undefined') return false;
+
+  const screenWidth = window.screen?.width || 0;
+  const screenHeight = window.screen?.height || 0;
+  const availableWidth = window.screen?.availWidth || screenWidth;
+  const availableHeight = window.screen?.availHeight || screenHeight;
+  const widthMatches =
+    Math.abs(window.innerWidth - screenWidth) <= FULLSCREEN_TOLERANCE_PX
+    || Math.abs(window.innerWidth - availableWidth) <= FULLSCREEN_TOLERANCE_PX;
+  const heightMatches =
+    Math.abs(window.innerHeight - screenHeight) <= FULLSCREEN_TOLERANCE_PX
+    || Math.abs(window.innerHeight - availableHeight) <= FULLSCREEN_TOLERANCE_PX;
+
+  return widthMatches && heightMatches;
+};
 
 const requestElementFullscreen = async (target: HTMLElement) => {
   const fullscreenTarget = target as HTMLElement & {
@@ -201,6 +223,7 @@ export default function EmbeddedOnlineQuiz({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pendingIntegrityEventRef = useRef<string | null>(null);
   const reloadHandledForAttemptRef = useRef<string | null>(null);
+  const attemptStartedOnThisPageRef = useRef<string | null>(null);
   const ignoreIntegrityUntilRef = useRef<number>(0);
   const completionNotifiedRef = useRef<string | null>(null);
   const fullscreenConfirmedRef = useRef(false);
@@ -233,16 +256,27 @@ export default function EmbeddedOnlineQuiz({
   }, [detail?.attempt?.expires_at, detail?.status]);
 
   useEffect(() => {
+    let resumeCheckTimer: number | null = null;
+
     const syncFullscreenState = () => {
-      const active = hasFullscreenElement();
+      const active = isEffectivelyFullscreen();
       setIsFullscreenReady(active);
       if (active) {
+        if (resumeCheckTimer !== null) {
+          window.clearTimeout(resumeCheckTimer);
+          resumeCheckTimer = null;
+        }
         fullscreenConfirmedRef.current = true;
         setNeedsFullscreenResume(false);
         return;
       }
 
-      if (shouldIgnoreIntegrityEvent()) return;
+      const gracePeriodRemaining = ignoreIntegrityUntilRef.current - Date.now();
+      if (gracePeriodRemaining > 0) {
+        if (resumeCheckTimer !== null) window.clearTimeout(resumeCheckTimer);
+        resumeCheckTimer = window.setTimeout(syncFullscreenState, gracePeriodRemaining + 50);
+        return;
+      }
 
       if (isQuizInProgress) {
         setNeedsFullscreenResume(true);
@@ -253,6 +287,7 @@ export default function EmbeddedOnlineQuiz({
     document.addEventListener('fullscreenchange', syncFullscreenState);
     window.addEventListener('resize', syncFullscreenState);
     return () => {
+      if (resumeCheckTimer !== null) window.clearTimeout(resumeCheckTimer);
       document.removeEventListener('fullscreenchange', syncFullscreenState);
       window.removeEventListener('resize', syncFullscreenState);
     };
@@ -293,12 +328,12 @@ export default function EmbeddedOnlineQuiz({
 
     const handleWindowBlur = () => {
       if (shouldIgnoreIntegrityEvent()) return;
-      if (hasFullscreenElement()) return;
+      if (isEffectivelyFullscreen()) return;
       pendingIntegrityEventRef.current = 'window_blur';
     };
 
     const handleWindowFocus = () => {
-      if (pendingIntegrityEventRef.current === 'window_blur' && hasFullscreenElement()) {
+      if (pendingIntegrityEventRef.current === 'window_blur' && isEffectivelyFullscreen()) {
         pendingIntegrityEventRef.current = null;
         return;
       }
@@ -307,7 +342,7 @@ export default function EmbeddedOnlineQuiz({
 
     const handleFullscreenChange = () => {
       if (shouldIgnoreIntegrityEvent()) {
-        const fullscreenActive = hasFullscreenElement();
+        const fullscreenActive = isEffectivelyFullscreen();
         setIsFullscreenReady(fullscreenActive);
         if (fullscreenActive) {
           fullscreenConfirmedRef.current = true;
@@ -316,7 +351,7 @@ export default function EmbeddedOnlineQuiz({
         return;
       }
 
-      const fullscreenActive = hasFullscreenElement();
+      const fullscreenActive = isEffectivelyFullscreen();
       if (fullscreenActive) {
         fullscreenConfirmedRef.current = true;
         setIsFullscreenReady(true);
@@ -353,6 +388,14 @@ export default function EmbeddedOnlineQuiz({
   useEffect(() => {
     if (!isQuizInProgress || !profile || !detail?.attempt?.id) return;
 
+    // A navigation entry remains "reload" for the lifetime of the document.
+    // Do not mistake an attempt started after that reload for an active quiz
+    // that was refreshed.
+    if (attemptStartedOnThisPageRef.current === detail.attempt.id) {
+      reloadHandledForAttemptRef.current = detail.attempt.id;
+      return;
+    }
+
     const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
     const isReload = navigationEntries.some((entry) => entry.type === 'reload');
     if (!isReload || reloadHandledForAttemptRef.current === detail.attempt.id) {
@@ -360,7 +403,7 @@ export default function EmbeddedOnlineQuiz({
     }
 
     reloadHandledForAttemptRef.current = detail.attempt.id;
-    setNeedsFullscreenResume(true);
+    setNeedsFullscreenResume(!isEffectivelyFullscreen());
     void registerRefreshAttempt();
   }, [isQuizInProgress, profile?.id, detail?.attempt?.id]);
 
@@ -373,9 +416,13 @@ export default function EmbeddedOnlineQuiz({
 
   const enterFullscreen = async () => {
     if (typeof document === 'undefined') return false;
-    if (hasFullscreenElement()) {
+    if (isEffectivelyFullscreen()) {
+      ignoreIntegrityUntilRef.current = Date.now() + 5000;
       fullscreenConfirmedRef.current = true;
       setIsFullscreenReady(true);
+      setNeedsFullscreenResume(false);
+      setIntegrityError(null);
+      pendingIntegrityEventRef.current = null;
       return true;
     }
 
@@ -384,7 +431,7 @@ export default function EmbeddedOnlineQuiz({
     try {
       await requestElementFullscreen(containerRef.current || document.documentElement);
       await new Promise((resolve) => window.setTimeout(resolve, 100));
-      if (!hasFullscreenElement()) {
+      if (!isEffectivelyFullscreen()) {
         throw new Error('Fullscreen did not activate. Please allow fullscreen for this site and try again.');
       }
       fullscreenConfirmedRef.current = true;
@@ -556,7 +603,7 @@ export default function EmbeddedOnlineQuiz({
 
       const payload = await response.json();
       setDetail(payload.detail as OnlineQuizDetail);
-      setNeedsFullscreenResume(Boolean(payload.require_fullscreen) && !hasFullscreenElement());
+      setNeedsFullscreenResume(Boolean(payload.require_fullscreen) && !isEffectivelyFullscreen());
 
       if (payload.message) {
         setPolicyMessage(payload.message);
@@ -572,11 +619,17 @@ export default function EmbeddedOnlineQuiz({
     if (!profile || !backendBase) return;
 
     const fullscreenEntered = await enterFullscreen();
-    if (!fullscreenEntered || !hasFullscreenElement()) {
+    if (!fullscreenEntered || !isEffectivelyFullscreen()) {
       window.alert('You must enter fullscreen mode before starting the quiz.');
       return;
     }
 
+    // Keep fullscreen transition events from being interpreted as exits while
+    // the start request changes the quiz from available to in_progress.
+    ignoreIntegrityUntilRef.current = Date.now() + 5000;
+    fullscreenConfirmedRef.current = true;
+    pendingIntegrityEventRef.current = null;
+    setNeedsFullscreenResume(false);
     setStarting(true);
     try {
       const response = await fetch(`${backendBase}/api/student/quiz/online/start`, {
@@ -594,11 +647,12 @@ export default function EmbeddedOnlineQuiz({
 
       const payload = (await response.json()) as OnlineQuizDetail;
       ignoreIntegrityUntilRef.current = Date.now() + 5000;
+      attemptStartedOnThisPageRef.current = payload.attempt?.id || null;
       fullscreenConfirmedRef.current = true;
       pendingIntegrityEventRef.current = null;
       setDetail(payload);
       setNeedsFullscreenResume(false);
-      setIsFullscreenReady(hasFullscreenElement());
+      setIsFullscreenReady(isEffectivelyFullscreen());
       setPolicyMessage(payload.policy_notice || payload.attempt?.integrity?.policy_notice || null);
       setPolicyDismissed(false);
     } catch (error) {
@@ -613,7 +667,7 @@ export default function EmbeddedOnlineQuiz({
 
   const saveAnswer = async (questionIndex: number, selectedOption: string) => {
     if (!detail || !profile || !backendBase) return;
-    if (isQuizInProgress && !hasFullscreenElement()) {
+    if (isQuizInProgress && !isEffectivelyFullscreen()) {
       setNeedsFullscreenResume(true);
       setIntegrityError('Return to fullscreen before answering this quiz.');
       return;
@@ -659,7 +713,7 @@ export default function EmbeddedOnlineQuiz({
 
   const submitQuiz = async (silent = false) => {
     if (!profile || !backendBase || submitting) return;
-    if (!silent && isQuizInProgress && !hasFullscreenElement()) {
+    if (!silent && isQuizInProgress && !isEffectivelyFullscreen()) {
       setNeedsFullscreenResume(true);
       setIntegrityError('Return to fullscreen before submitting this quiz.');
       return;

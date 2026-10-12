@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, BookOpen, Clock3, FileText, Lightbulb, Sparkles } from 'lucide-react';
 import StudentLayout from '@/components/StudentLayout';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 type CourseRow = {
   id: string;
@@ -83,7 +84,7 @@ export default function Brainstorming() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         await supabase.auth.signOut();
         router.push('/student/login');
         return;

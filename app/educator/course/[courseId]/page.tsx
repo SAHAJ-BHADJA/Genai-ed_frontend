@@ -147,7 +147,7 @@ export default function CourseLectures() {
         setCourse(courseData);
         await Promise.all([
           loadCourseLectures(),
-          loadCourseAssignments(),
+          loadCourseAssignments(user.id),
           loadCourseQuizzes(),
           loadCourseLectureAnalytics(),
           loadCourseQuizAnalytics(),
@@ -259,7 +259,7 @@ export default function CourseLectures() {
     }
   };
 
-  const loadCourseAssignments = async () => {
+  const loadCourseAssignments = async (educatorId: string) => {
     try {
       const { data: assignmentRows, error: assignmentError } = await supabase
         .from('assignments')
@@ -293,11 +293,11 @@ export default function CourseLectures() {
       const [{ data: targetRows, error: targetError }, { data: submissionRows, error: submissionError }] = await Promise.all([
         supabase
           .from('assignment_students')
-          .select('assignment_id')
+          .select('assignment_id, student_id')
           .in('assignment_id', assignmentIds),
         supabase
           .from('assignment_submissions')
-          .select('assignment_id, submitted_at, grade_score')
+          .select('assignment_id, student_id, submitted_at, grade_score')
           .in('assignment_id', assignmentIds),
       ]);
 
@@ -305,7 +305,8 @@ export default function CourseLectures() {
       if (submissionError) throw submissionError;
 
       const targetCounts = new Map<string, number>();
-      (targetRows || []).forEach((row: { assignment_id: string }) => {
+      (targetRows || []).forEach((row: { assignment_id: string; student_id: string | null }) => {
+        if (row.student_id === educatorId) return;
         targetCounts.set(row.assignment_id, (targetCounts.get(row.assignment_id) || 0) + 1);
       });
 
@@ -313,7 +314,8 @@ export default function CourseLectures() {
       const gradedCounts = new Map<string, number>();
       const gradeTotals = new Map<string, number>();
 
-      (submissionRows || []).forEach((row: { assignment_id: string; submitted_at: string | null; grade_score: number | null }) => {
+      (submissionRows || []).forEach((row: { assignment_id: string; student_id: string | null; submitted_at: string | null; grade_score: number | null }) => {
+        if (row.student_id === educatorId) return;
         if (row.submitted_at) {
           submittedCounts.set(row.assignment_id, (submittedCounts.get(row.assignment_id) || 0) + 1);
         }

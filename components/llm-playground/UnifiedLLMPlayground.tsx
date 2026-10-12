@@ -35,6 +35,7 @@ import Markdown from '@/components/Markdown';
 import { ModelOutputExpandModal } from '@/components/ModelOutputExpandModal';
 import { getBackendBase } from '@/lib/backend';
 import { supabase, type Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 type UserRole = 'educator' | 'student';
 type RunMode = 'single' | 'compare' | 'single-judge' | 'multi-judge' | 'synthesis';
@@ -1025,7 +1026,7 @@ export default function UnifiedLLMPlayground({ role }: { role: UserRole }) {
           .eq('id', user.id)
           .maybeSingle();
         if (profileError) throw profileError;
-        if (!profileData || profileData.role !== role) {
+        if (!profileData || !hasProfileRole(profileData, role)) {
           router.replace(`/${role}/login`);
           return;
         }

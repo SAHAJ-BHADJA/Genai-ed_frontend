@@ -8,6 +8,7 @@ import { ArrowLeft, Upload, File, Check, ChevronDown, ChevronUp, Info, Video, Mi
 import { toast } from 'sonner';
 import { getBackendBase } from '@/lib/backend';
 import { validateFileSize } from '@/lib/fileUpload';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 type MaterialWithType = {
   url: string;
@@ -88,7 +89,7 @@ export default function CreateLecture() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         await supabase.auth.signOut();
         router.push('/student/login');
         return;

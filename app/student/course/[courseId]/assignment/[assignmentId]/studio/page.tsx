@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import StudentLayout from '@/components/StudentLayout';
 import SocraticStudioWorkspace from '@/components/socratic-writing/SocraticStudioWorkspace';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 export default function StudentSocraticStudioPage() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function StudentSocraticStudioPage() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         await supabase.auth.signOut();
         router.push('/student/login');
         return;

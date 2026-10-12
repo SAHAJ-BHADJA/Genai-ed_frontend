@@ -1399,7 +1399,9 @@ export default function NewAssignmentPage() {
             <div className="rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                 <span className="font-medium text-gray-900">Course roster</span>
-                <span className="text-sm text-gray-600">{roster.length} students</span>
+                <span className="text-sm text-gray-600">
+                  {roster.filter(student => student.student_id !== profile?.id).length} students
+                </span>
               </div>
               {roster.length > 0 ? (
                 <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
@@ -1412,7 +1414,9 @@ export default function NewAssignmentPage() {
                         <p className="text-sm text-gray-600">{student.email}</p>
                       </div>
                       <span className="text-xs text-gray-500">
-                        {student.student_id ? 'Signed up' : 'Invite pending'}
+                        {student.student_id === profile?.id
+                          ? 'Educator test account'
+                          : student.student_id ? 'Signed up' : 'Invite pending'}
                       </span>
                     </div>
                   ))}

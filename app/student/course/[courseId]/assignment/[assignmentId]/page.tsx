@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import StudentLayout from '@/components/StudentLayout';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import { uploadFile } from '@/lib/fileUpload';
 import {
   getAssignmentSystemMissingMessage,
@@ -95,7 +96,7 @@ export default function StudentAssignmentDetailPage() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         router.push('/student/login');
         return;
       }

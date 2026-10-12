@@ -9,6 +9,7 @@ import StudentAssignmentCard from '@/components/StudentAssignmentCard';
 import StudentPerformanceSummary from '@/components/StudentPerformanceSummary';
 import { getBackendBase } from '@/lib/backend';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import {
   getAssignmentSystemMissingMessage,
   isAssignmentSystemMissingError,
@@ -196,7 +197,7 @@ export default function StudentCourse() {
       .eq('id', user.id)
       .maybeSingle();
 
-    if (!profileData || profileData.role !== 'student') {
+    if (!profileData || !hasProfileRole(profileData, 'student')) {
       router.push('/');
       return;
     }

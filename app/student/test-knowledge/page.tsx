@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase, Profile } from '@/lib/supabase';
 import StudentLayout from '@/components/StudentLayout';
 import { ArrowLeft, ClipboardCheck, Sparkles } from 'lucide-react';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 export default function TestKnowledge() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function TestKnowledge() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         await supabase.auth.signOut();
         router.push('/student/login');
         return;

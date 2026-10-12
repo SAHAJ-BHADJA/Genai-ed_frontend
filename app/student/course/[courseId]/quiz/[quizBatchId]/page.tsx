@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import StudentLayout from '@/components/StudentLayout';
 import { getBackendBase } from '@/lib/backend';
 import { Profile, supabase } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, FileCheck, Loader2, Monitor } from 'lucide-react';
 
 const backendBase = getBackendBase();
@@ -313,7 +314,7 @@ export default function StudentOnlineQuizPage() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         router.push('/student/login');
         return;
       }

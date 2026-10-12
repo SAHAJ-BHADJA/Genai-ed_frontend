@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, LogOut, Bot, PenLine } from 'lucide-react';
+import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, Bot, PenLine } from 'lucide-react';
 import { supabase, Profile, Course } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection, AddButtonItem } from './CollapsibleSidebar';
 import ProfileAccountMenu from './ProfileAccountMenu';
@@ -96,9 +96,13 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
           </div>
  
           <div className="flex items-center gap-4">
-            <button className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2">
-              <LogOut className="w-4 h-4" />
-              Educator Workspace
+            <button
+              type="button"
+              onClick={() => router.push('/student/dashboard')}
+              className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              Student Workspace
             </button>
             <ProfileAccountMenu
               profile={profile}

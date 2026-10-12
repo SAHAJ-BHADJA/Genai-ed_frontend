@@ -2,10 +2,11 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Chrome as Home, MessageSquare, Lightbulb, Video, ClipboardCheck, BookOpen, Library, Bot } from 'lucide-react';
+import { Chrome as Home, Lightbulb, Video, ClipboardCheck, BookOpen, Library, Bot, GraduationCap } from 'lucide-react';
 import { supabase, Profile } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection } from './CollapsibleSidebar';
 import ProfileAccountMenu from './ProfileAccountMenu';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 interface Course {
   id: string;
@@ -23,6 +24,7 @@ interface StudentLayoutProps {
 export default function StudentLayout({ children, profile }: StudentLayoutProps) {
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
+  const canSwitchToEducator = hasProfileRole(profile, 'educator');
 
   useEffect(() => {
     loadCourses();
@@ -106,10 +108,21 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
           </div>
 
           <div className="flex items-center gap-4">
-            <button className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              Student Workspace
-            </button>
+            {canSwitchToEducator ? (
+              <button
+                type="button"
+                onClick={() => router.push('/educator/dashboard')}
+                className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
+              >
+                <GraduationCap className="w-4 h-4" />
+                Educator Workspace
+              </button>
+            ) : (
+              <div className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                Student Workspace
+              </div>
+            )}
             <ProfileAccountMenu
               profile={profile}
               fallbackName="Student"

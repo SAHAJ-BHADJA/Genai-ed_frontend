@@ -6,6 +6,7 @@ import StudentLayout from '@/components/StudentLayout';
 import CourseCard from '@/components/CourseCard';
 import LectureCard from '@/components/LectureCard';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import {
   Video,
   Lightbulb,
@@ -127,7 +128,7 @@ export default function StudentDashboard() {
       .eq('id', user.id)
       .maybeSingle();
 
-    if (!profileData || profileData.role !== 'student') {
+    if (!profileData || !hasProfileRole(profileData, 'student')) {
       router.push('/');
       return;
     }

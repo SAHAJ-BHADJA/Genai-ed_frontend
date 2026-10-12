@@ -6,6 +6,7 @@ import { X, Mail, Lock, GraduationCap, BookOpen, AlertCircle, Chrome } from 'luc
 import { supabase } from '@/lib/supabase';
 import { warmAllModels } from '@/lib/modelWarmup';
 import { startGoogleSignIn } from '@/lib/googleAuth';
+import { hasProfileRole } from '@/lib/profileRoles';
 
 interface AuthCardProps {
   role: 'educator' | 'student';
@@ -68,9 +69,9 @@ export default function AuthCard({ role }: AuthCardProps) {
         return;
       }
 
-      if (profile.role !== role) {
+      if (!hasProfileRole(profile, role)) {
         console.error('Role mismatch:', { expected: role, actual: profile.role });
-        setError(`This account is registered as ${profile.role}. Please use the correct portal.`);
+        setError(`This account does not have access to the ${role} portal.`);
         await supabase.auth.signOut();
         setLoading(false);
         return;

@@ -152,13 +152,15 @@ export default function EditCourse() {
         }
         if (studentsData) {
           setStudents(
-            (studentsData as CourseStudentRosterRow[]).map(student => ({
-              id: student.course_student_id,
-              firstName: student.first_name ?? '',
-              lastName: student.last_name ?? '',
-              email: student.email ?? '',
-              studentId: student.student_id,
-            }))
+            (studentsData as CourseStudentRosterRow[])
+              .filter(student => student.student_id !== user.id)
+              .map(student => ({
+                id: student.course_student_id,
+                firstName: student.first_name ?? '',
+                lastName: student.last_name ?? '',
+                email: student.email ?? '',
+                studentId: student.student_id,
+              }))
           );
         }
 
@@ -447,13 +449,15 @@ export default function EditCourse() {
       }
 
       setStudents(
-        ((syncedStudents ?? []) as CourseStudentRosterRow[]).map(student => ({
-          id: student.course_student_id,
-          firstName: student.first_name ?? '',
-          lastName: student.last_name ?? '',
-          email: student.email ?? '',
-          studentId: student.student_id,
-        }))
+        ((syncedStudents ?? []) as CourseStudentRosterRow[])
+          .filter(student => student.student_id !== profile.id)
+          .map(student => ({
+            id: student.course_student_id,
+            firstName: student.first_name ?? '',
+            lastName: student.last_name ?? '',
+            email: student.email ?? '',
+            studentId: student.student_id,
+          }))
       );
 
       const { error: textbookDeleteError } = await supabase

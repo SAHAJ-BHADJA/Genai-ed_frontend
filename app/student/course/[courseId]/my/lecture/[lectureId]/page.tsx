@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import StudentLayout from '@/components/StudentLayout';
 import { supabase, Profile } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import {
   ArrowLeft,
   MessageSquare,
@@ -83,7 +84,7 @@ export default function StudentMyLectureViewer() {
         .eq('id', user.id)
         .maybeSingle();
 
-      if (!profileData || profileData.role !== 'student') {
+      if (!profileData || !hasProfileRole(profileData, 'student')) {
         router.push('/');
         return;
       }

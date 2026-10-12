@@ -17,6 +17,7 @@ export type Profile = {
   first_name: string;
   last_name: string;
   role: 'educator' | 'student';
+  roles?: Array<'educator' | 'student'>;
   auth_provider?: string;
   is_access_approved?: boolean;
   access_code_verified_at?: string | null;
@@ -101,6 +102,7 @@ export type CourseStudent = {
   id: string;
   course_id: string;
   email: string;
+  enrollment_type?: 'student' | 'educator_test';
   created_at: string;
 };
 

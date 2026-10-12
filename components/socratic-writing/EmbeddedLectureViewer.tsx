@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Profile, supabase } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import { Clock, Download, FileText, Loader2, Music, Presentation, User, Video } from 'lucide-react';
 
 interface Lecture {
@@ -131,8 +132,8 @@ export default function EmbeddedLectureViewer({
         return;
       }
 
-      const isEducatorPreview = previewMode && profileData.role === 'educator';
-      if (!isEducatorPreview && profileData.role !== 'student') {
+      const isEducatorPreview = previewMode && hasProfileRole(profileData, 'educator');
+      if (!isEducatorPreview && !hasProfileRole(profileData, 'student')) {
         setError('Student access is required to view this lecture.');
         return;
       }

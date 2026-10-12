@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getBackendBase } from '@/lib/backend';
 import { Profile, supabase } from '@/lib/supabase';
+import { hasProfileRole } from '@/lib/profileRoles';
 import { AlertTriangle, CheckCircle2, Clock, FileCheck, Loader2, Monitor } from 'lucide-react';
 
 const backendBase = getBackendBase();
@@ -468,13 +469,13 @@ export default function EmbeddedOnlineQuiz({
         return;
       }
 
-      if (profileData.role === 'educator' && previewMode) {
+      if (hasProfileRole(profileData, 'educator') && previewMode) {
         setProfile(profileData);
         await fetchEducatorPreview(profileData.id);
         return;
       }
 
-      if (profileData.role !== 'student') {
+      if (!hasProfileRole(profileData, 'student')) {
         setIntegrityError('Student access is required to view this quiz.');
         return;
       }

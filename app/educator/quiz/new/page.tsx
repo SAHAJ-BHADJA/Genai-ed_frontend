@@ -1616,6 +1616,9 @@ export default function CreateQuiz() {
                                       {getStudentDisplayName(student)}
                                     </div>
                                     <div className="text-sm text-gray-600">{student.email}</div>
+                                    {student.student_id === profile?.id && (
+                                      <div className="text-xs text-blue-600 mt-1">Educator test account</div>
+                                    )}
                                     {!student.student_id && (
                                       <div className="text-xs text-red-600 mt-1">Student not registered yet</div>
                                     )}

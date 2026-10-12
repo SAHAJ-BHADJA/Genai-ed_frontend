@@ -533,10 +533,15 @@ export default function EducatorAssignmentDetailPage() {
     if (submissionError) throw submissionError;
 
     setCourse(courseRow || null);
-    setTargets((targetRows || []) as AssignmentTarget[]);
-    setRoster((rosterRows || []) as CourseRosterEntry[]);
+    const visibleTargets = ((targetRows || []) as AssignmentTarget[])
+      .filter(target => target.student_id !== educatorId);
+    const visibleRoster = ((rosterRows || []) as CourseRosterEntry[])
+      .filter(student => student.student_id !== educatorId);
+    setTargets(visibleTargets);
+    setRoster(visibleRoster);
 
-    const normalizedSubmissions = (submissionRows || []) as AssignmentSubmissionRecord[];
+    const normalizedSubmissions = ((submissionRows || []) as AssignmentSubmissionRecord[])
+      .filter(submission => submission.student_id !== educatorId);
     setSubmissions(normalizedSubmissions);
     setGradeDrafts(
       normalizedSubmissions.reduce<Record<string, string>>((acc, submission) => {

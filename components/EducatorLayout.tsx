@@ -99,10 +99,12 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
             <button
               type="button"
               onClick={() => router.push('/student/dashboard')}
+              aria-label="Switch to student workspace"
+              title="Switch to student workspace"
               className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
             >
               <BookOpen className="w-4 h-4" />
-              Student Workspace
+              Switch to Student
             </button>
             <ProfileAccountMenu
               profile={profile}

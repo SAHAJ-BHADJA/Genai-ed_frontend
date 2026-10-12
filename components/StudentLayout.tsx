@@ -112,15 +112,21 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
               <button
                 type="button"
                 onClick={() => router.push('/educator/dashboard')}
+                aria-label="Switch to educator workspace"
+                title="Switch to educator workspace"
                 className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
               >
                 <GraduationCap className="w-4 h-4" />
-                Educator Workspace
+                Switch to Educator
               </button>
             ) : (
-              <div className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold flex items-center gap-2">
+              <div
+                className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold flex items-center gap-2"
+                aria-label="Current workspace: student"
+                title="Current workspace"
+              >
                 <BookOpen className="w-4 h-4" />
-                Student Workspace
+                Student Mode
               </div>
             )}
             <ProfileAccountMenu

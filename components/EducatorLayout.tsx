@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, Bot, PenLine } from 'lucide-react';
+import { Chrome as Home, ClipboardCheck, FileText, GraduationCap, Library, BookOpen, Bot, PenLine, ArrowLeftRight } from 'lucide-react';
 import { supabase, Profile, Course } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection, AddButtonItem } from './CollapsibleSidebar';
 import ProfileAccountMenu from './ProfileAccountMenu';
@@ -101,10 +101,14 @@ export default function EducatorLayout({ children, profile }: EducatorLayoutProp
               onClick={() => router.push('/student/dashboard')}
               aria-label="Switch to student workspace"
               title="Switch to student workspace"
-              className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
+              className="flex items-center gap-3 rounded-lg bg-brand-yellow px-5 py-2 text-black transition-colors hover:bg-brand-yellow-hover"
             >
-              <BookOpen className="w-4 h-4" />
-              Switch to Student
+              <GraduationCap className="h-5 w-5" />
+              <span className="flex flex-col items-start leading-tight">
+                <span className="font-semibold">Educator Portal</span>
+                <span className="text-xs font-medium text-black/65">Switch portal</span>
+              </span>
+              <ArrowLeftRight className="h-4 w-4 text-black/65" aria-hidden="true" />
             </button>
             <ProfileAccountMenu
               profile={profile}

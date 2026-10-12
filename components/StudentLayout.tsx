@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Chrome as Home, Lightbulb, Video, ClipboardCheck, BookOpen, Library, Bot, GraduationCap } from 'lucide-react';
+import { Chrome as Home, Lightbulb, Video, ClipboardCheck, BookOpen, Library, Bot, GraduationCap, ArrowLeftRight } from 'lucide-react';
 import { supabase, Profile } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection } from './CollapsibleSidebar';
 import ProfileAccountMenu from './ProfileAccountMenu';
@@ -114,19 +114,26 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
                 onClick={() => router.push('/educator/dashboard')}
                 aria-label="Switch to educator workspace"
                 title="Switch to educator workspace"
-                className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold hover:bg-brand-yellow-hover transition-colors flex items-center gap-2"
+                className="flex items-center gap-3 rounded-lg bg-brand-yellow px-5 py-2 text-black transition-colors hover:bg-brand-yellow-hover"
               >
-                <GraduationCap className="w-4 h-4" />
-                Switch to Educator
+                <BookOpen className="h-5 w-5" />
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="font-semibold">Student Portal</span>
+                  <span className="text-xs font-medium text-black/65">Switch portal</span>
+                </span>
+                <ArrowLeftRight className="h-4 w-4 text-black/65" aria-hidden="true" />
               </button>
             ) : (
               <div
-                className="bg-brand-yellow text-black px-6 py-2 rounded-lg font-semibold flex items-center gap-2"
+                className="flex items-center gap-3 rounded-lg bg-brand-yellow px-5 py-2 text-black"
                 aria-label="Current workspace: student"
                 title="Current workspace"
               >
-                <BookOpen className="w-4 h-4" />
-                Student Mode
+                <BookOpen className="h-5 w-5" />
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="font-semibold">Student Portal</span>
+                  <span className="text-xs font-medium text-black/65">Current portal</span>
+                </span>
               </div>
             )}
             <ProfileAccountMenu

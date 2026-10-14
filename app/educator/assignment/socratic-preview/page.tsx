@@ -56,7 +56,7 @@ export default function EducatorSocraticPreviewPage() {
   };
 
   const handleBack = () => {
-    router.push(previewPayload?.returnUrl || '/educator/assignment/new?mode=socratic');
+    router.push(previewPayload?.returnUrl || '/educator/socratic-writing');
   };
 
   const handleSavePreviewSession = useCallback((session: SocraticStudioSession) => {

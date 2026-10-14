@@ -41,6 +41,7 @@ import {
   buildPdfHtml,
   createStudioLedgerEntry,
   createStudioNote,
+  getEnabledSocraticStages,
   getStageBadgeClasses,
   isStageUnlocked,
   recomputeStageStatuses,
@@ -139,6 +140,11 @@ export default function SocraticStudioWorkspace({
   const [notesOpen, setNotesOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [briefPdfOpen, setBriefPdfOpen] = useState(false);
+
+  const enabledStages = useMemo(
+    () => (blueprint ? getEnabledSocraticStages(blueprint) : [...SOCRATIC_STAGE_ORDER]),
+    [blueprint],
+  );
 
   const hydratedRef = useRef(false);
   const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -402,6 +408,12 @@ export default function SocraticStudioWorkspace({
   }, [session]);
 
   const openResourceFromBrief = (resource: SocraticResource) => {
+    if (blueprint?.stages.research.enabled === false) {
+      if (resource.url) {
+        window.open(resource.url, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
     setSelectedResourceId(resource.id);
     setStage('research');
   };
@@ -986,7 +998,7 @@ export default function SocraticStudioWorkspace({
             <FileText className="h-4 w-4" /> Brief
           </button>
           <span className="mx-1 h-6 w-px shrink-0 bg-gray-200" />
-          {SOCRATIC_STAGE_ORDER.map((stage) => {
+          {enabledStages.map((stage) => {
             const Icon = stageIcons[stage];
             const active = activeView === stage;
             const status = session.stageStatuses[stage];
@@ -1111,7 +1123,7 @@ export default function SocraticStudioWorkspace({
                   >
                     <FileText className="h-4 w-4" /> Brief
                   </button>
-                  {SOCRATIC_STAGE_ORDER.map((stage) => {
+                  {enabledStages.map((stage) => {
                     const Icon = stageIcons[stage];
                     const active = activeView === stage;
                     return (
@@ -1683,12 +1695,8 @@ function WorkspaceStageContent({
         </div>
       )}
 
-      <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden rounded-2xl border border-amber-200 bg-amber-50 p-5">
-        {!stageConfig.aiAllowed ? (
-          <div className="text-sm text-amber-900">
-            AI chat is disabled for {stageConfig.label}. Continue with notes and the stage tools instead.
-          </div>
-        ) : (
+      {stageConfig.aiAllowed && (
+        <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <div className="space-y-3">
             {stageConversation.length === 0 ? (
               <div className="rounded-xl bg-white px-4 py-3 text-sm text-gray-600">
@@ -1724,9 +1732,9 @@ function WorkspaceStageContent({
               ))
             )}
           </div>
-        )}
-        <div ref={chatEndRef} />
-      </div>
+          <div ref={chatEndRef} />
+        </div>
+      )}
       </div>
       {stageConfig.aiAllowed && (
         <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-amber-200 bg-amber-50/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:p-4">

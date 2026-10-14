@@ -10,11 +10,19 @@ export type SocraticStageStatus = 'not_started' | 'in_progress' | 'completed';
 export type SocraticResourceType = 'reading' | 'quiz' | 'avatar_lecture' | 'lecture' | 'source';
 export type SocraticLedgerActor = 'student' | 'ai' | 'system';
 
+export const getEnabledSocraticStages = (blueprint: SocraticStudioBlueprint) => {
+  const enabled = SOCRATIC_STAGE_ORDER.filter(
+    (stage) => stage === 'write' || blueprint.stages[stage]?.enabled !== false,
+  );
+  return enabled.length > 0 ? enabled : (['write'] as SocraticStageKey[]);
+};
+
 export interface SocraticStageConfig {
   key: SocraticStageKey;
   label: string;
   summary: string;
   description: string;
+  enabled: boolean;
   aiAllowed: boolean;
   systemPrompt: string;
   starterPrompt: string;
@@ -64,6 +72,10 @@ export interface SocraticStudioBlueprint {
   pointsPossible: number;
   wordCount: number;
   model: string;
+  builderVersion?: 'v1' | 'wizard_v2';
+  verificationMethod?: 'online_quiz';
+  readinessGenerationSignatures?: Partial<Record<SocraticStageKey, string>>;
+  starterGenerationSignatures?: Partial<Record<SocraticStageKey, string>>;
   promptControls: SocraticPromptControls;
   stages: Record<SocraticStageKey, SocraticStageConfig>;
   resources: SocraticResource[];
@@ -186,6 +198,7 @@ export interface SocraticPreviewPayload {
   session: SocraticStudioSession;
   returnUrl: string;
   createdAt: string;
+  temporary?: boolean;
 }
 
 type CreateBlueprintInput = {
@@ -205,6 +218,7 @@ const REGISTRY_KEY = `${STORAGE_PREFIX}:assignment-registry`;
 const BLUEPRINT_KEY_PREFIX = `${STORAGE_PREFIX}:blueprint:`;
 const CREATED_RESOURCE_KEY = `${STORAGE_PREFIX}:created-resource`;
 const PREVIEW_KEY = `${STORAGE_PREFIX}:educator-preview`;
+const TEMPORARY_PREVIEW_KEY = `${STORAGE_PREFIX}:educator-preview-session`;
 
 export const DEFAULT_SOCRATIC_GLOBAL_PROMPT = `You are an AI tutor inside a Socratic Writing Studio. Your role is to help the student understand the assignment, use the provided materials well, and improve their own thinking without doing the assignment for them.
 
@@ -565,7 +579,7 @@ export const DEFAULT_STAGE_STARTER_QUESTIONS: Record<SocraticStageKey, string[]>
   ],
 };
 
-const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiAllowed'>> = {
+const STAGE_BASE_CONFIG: Record<SocraticStageKey, Omit<SocraticStageConfig, 'aiAllowed' | 'enabled'>> = {
   clarify: {
     key: 'clarify',
     label: 'Clarify',
@@ -739,18 +753,24 @@ export const createDefaultStudioBlueprint = (
   pointsPossible: input.pointsPossible || 100,
   wordCount: input.wordCount || 1500,
   model: 'gpt-5.6-sol',
+  builderVersion: 'v1',
+  verificationMethod: 'online_quiz',
   promptControls: { ...DEFAULT_SOCRATIC_PROMPT_CONTROLS },
   stages: {
-    clarify: { ...STAGE_BASE_CONFIG.clarify, aiAllowed: true },
-    research: { ...STAGE_BASE_CONFIG.research, aiAllowed: true },
-    build: { ...STAGE_BASE_CONFIG.build, aiAllowed: true },
-    write: { ...STAGE_BASE_CONFIG.write, aiAllowed: true },
+    clarify: { ...STAGE_BASE_CONFIG.clarify, enabled: true, aiAllowed: true },
+    research: { ...STAGE_BASE_CONFIG.research, enabled: true, aiAllowed: true },
+    build: { ...STAGE_BASE_CONFIG.build, enabled: true, aiAllowed: true },
+    write: { ...STAGE_BASE_CONFIG.write, enabled: true, aiAllowed: true },
   },
   resources: [],
 });
 
-export const createInitialStudioSession = (): SocraticStudioSession => ({
-  activeStage: 'clarify',
+export const createInitialStudioSession = (
+  blueprint?: SocraticStudioBlueprint,
+): SocraticStudioSession => {
+  const activeStage = blueprint ? getEnabledSocraticStages(blueprint)[0] : 'clarify';
+  return {
+  activeStage,
   stageStatuses: {
     clarify: 'not_started',
     research: 'not_started',
@@ -761,10 +781,10 @@ export const createInitialStudioSession = (): SocraticStudioSession => ({
   ledger: [
     {
       id: uid('ledger'),
-      stage: 'clarify',
+      stage: activeStage,
       actor: 'system',
       title: 'Studio opened',
-      content: 'The student entered Socratic Writing Studio. Start in Clarify and work forward.',
+      content: `The student entered Socratic Writing Studio. Start in ${blueprint?.stages[activeStage].label || 'Clarify'} and work forward.`,
       createdAt: nowIso(),
     },
   ],
@@ -781,7 +801,8 @@ export const createInitialStudioSession = (): SocraticStudioSession => ({
   essayHtml: defaultEssayHtml,
   essayJson: JSON.stringify({ type: 'doc', version: 1, html: defaultEssayHtml }),
   submittedAt: null,
-});
+  };
+};
 
 export const createInitialReviewState = (): SocraticReviewState => ({
   score: '',
@@ -817,13 +838,16 @@ const createPreviewStarterEntry = (
 export const createPreviewStudioSession = (
   blueprint: SocraticStudioBlueprint,
 ): SocraticStudioSession => {
-  const session = createInitialStudioSession();
+  const session = createInitialStudioSession(blueprint);
+  const enabledStages = getEnabledSocraticStages(blueprint);
   return recomputeStageStatuses(
     {
       ...session,
       ledger: [
         ...session.ledger,
-        ...SOCRATIC_STAGE_ORDER.map((stage) => createPreviewStarterEntry(stage, blueprint)),
+        ...enabledStages
+          .filter((stage) => blueprint.stages[stage].aiAllowed)
+          .map((stage) => createPreviewStarterEntry(stage, blueprint)),
       ],
       resourceProgress: createResourceProgressMap(blueprint.resources),
     },
@@ -843,6 +867,10 @@ export const recomputeStageStatuses = (
   };
 
   SOCRATIC_STAGE_ORDER.forEach((stage) => {
+    if (blueprint.stages[stage]?.enabled === false && stage !== 'write') {
+      nextStatuses[stage] = 'not_started';
+      return;
+    }
     if (getStepCompletion(stage, session, blueprint)) {
       nextStatuses[stage] = 'completed';
       return;
@@ -865,14 +893,17 @@ export const isStageUnlocked = (
   session: SocraticStudioSession,
   blueprint: SocraticStudioBlueprint,
 ) => {
-  void stage;
+  if (stage !== 'write' && blueprint.stages[stage]?.enabled === false) return false;
   void session;
-  void blueprint;
   return true;
 };
 
-export const getRecommendedStage = (session: SocraticStudioSession) => {
-  const nextIncomplete = SOCRATIC_STAGE_ORDER.find(
+export const getRecommendedStage = (
+  session: SocraticStudioSession,
+  blueprint?: SocraticStudioBlueprint,
+) => {
+  const availableStages = blueprint ? getEnabledSocraticStages(blueprint) : SOCRATIC_STAGE_ORDER;
+  const nextIncomplete = availableStages.find(
     (stage) => session.stageStatuses[stage] !== 'completed',
   );
   return nextIncomplete || 'write';
@@ -1005,16 +1036,25 @@ export const clearStudioDraft = (courseId: string) => {
 
 export const saveSocraticPreviewPayload = (payload: SocraticPreviewPayload) => {
   if (typeof window === 'undefined') return;
+  if (payload.temporary) {
+    window.sessionStorage.setItem(TEMPORARY_PREVIEW_KEY, JSON.stringify(payload));
+    return;
+  }
   window.localStorage.setItem(PREVIEW_KEY, JSON.stringify(payload));
 };
 
 export const loadSocraticPreviewPayload = () => {
   if (typeof window === 'undefined') return null;
+  const temporaryPayload = safeJsonParse<SocraticPreviewPayload>(
+    window.sessionStorage.getItem(TEMPORARY_PREVIEW_KEY),
+  );
+  if (temporaryPayload) return temporaryPayload;
   return safeJsonParse<SocraticPreviewPayload>(window.localStorage.getItem(PREVIEW_KEY));
 };
 
 export const clearSocraticPreviewPayload = () => {
   if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(TEMPORARY_PREVIEW_KEY);
   window.localStorage.removeItem(PREVIEW_KEY);
 };
 

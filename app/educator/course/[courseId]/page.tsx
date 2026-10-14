@@ -734,7 +734,7 @@ export default function CourseLectures() {
                       </button>
                       <button
                         onClick={() => {
-                          router.push(`/educator/assignment/new?courseId=${courseId}&mode=socratic`);
+                          router.push(`/educator/socratic-writing?courseId=${courseId}`);
                           setShowCreateMenu(false);
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"

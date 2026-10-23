@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   FlaskConical,
@@ -22,8 +22,10 @@ type Props = {
   blueprint: SocraticStudioBlueprint;
   onChange: (blueprint: SocraticStudioBlueprint) => void;
   onRegenerateStage: (stage: SocraticStageKey) => Promise<void>;
+  onRegenerateMessage: (stage: SocraticStageKey) => Promise<void>;
   getReadinessSignature: (stage: SocraticStageKey) => string;
   getStarterSignature: (stage: SocraticStageKey) => string;
+  researchMaterialsEditor: ReactNode;
 };
 
 const stageIcons = {
@@ -37,12 +39,25 @@ export default function SocraticWizardStageDesigner({
   blueprint,
   onChange,
   onRegenerateStage,
+  onRegenerateMessage,
   getReadinessSignature,
   getStarterSignature,
+  researchMaterialsEditor,
 }: Props) {
   const [activeStage, setActiveStage] = useState<SocraticStageKey>('clarify');
   const [generatingStage, setGeneratingStage] = useState<SocraticStageKey | null>(null);
+  const [generatingMessageStage, setGeneratingMessageStage] = useState<SocraticStageKey | null>(null);
+  const enabledStages = useMemo(
+    () => SOCRATIC_STAGE_ORDER.filter((stageKey) => stageKey === 'write' || blueprint.stages[stageKey].enabled),
+    [blueprint.stages],
+  );
   const stage = blueprint.stages[activeStage];
+
+  useEffect(() => {
+    if (!enabledStages.includes(activeStage)) {
+      setActiveStage(enabledStages[0] || 'write');
+    }
+  }, [activeStage, enabledStages]);
 
   const updateStage = (
     stageKey: SocraticStageKey,
@@ -56,9 +71,28 @@ export default function SocraticWizardStageDesigner({
           ...blueprint.stages[stageKey],
           ...patch,
           enabled: stageKey === 'write' ? true : patch.enabled ?? blueprint.stages[stageKey].enabled,
+          aiAllowed: stageKey === 'clarify' || stageKey === 'build'
+            ? true
+            : patch.aiAllowed ?? blueprint.stages[stageKey].aiAllowed,
         },
       },
     });
+  };
+
+  const toggleStage = (stageKey: SocraticStageKey) => {
+    if (stageKey === 'write') return;
+    const enabled = blueprint.stages[stageKey].enabled;
+    updateStage(stageKey, { enabled: !enabled });
+    if (enabled && activeStage === stageKey) {
+      const currentIndex = SOCRATIC_STAGE_ORDER.indexOf(stageKey);
+      const nextStage = [
+        ...SOCRATIC_STAGE_ORDER.slice(currentIndex + 1),
+        ...SOCRATIC_STAGE_ORDER.slice(0, currentIndex),
+      ].find((candidate) => candidate === 'write' || (
+        candidate !== stageKey && blueprint.stages[candidate].enabled
+      ));
+      setActiveStage(nextStage || 'write');
+    }
   };
 
   const readinessReady = stage.readinessQuestions.some((goal) => goal.trim());
@@ -83,6 +117,17 @@ export default function SocraticWizardStageDesigner({
     }
   };
 
+  const regenerateMessage = async () => {
+    setGeneratingMessageStage(activeStage);
+    try {
+      await onRegenerateMessage(activeStage);
+    } finally {
+      setGeneratingMessageStage(null);
+    }
+  };
+
+  const generationInProgress = generatingStage !== null || generatingMessageStage !== null;
+
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -100,10 +145,13 @@ export default function SocraticWizardStageDesigner({
               <div key={stageKey} className="flex items-center gap-2">
                 <button
                   type="button"
+                  disabled={!enabled}
                   onClick={() => setActiveStage(stageKey)}
                   className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 font-semibold transition-colors ${
                     active
                       ? 'border-brand-maroon bg-brand-maroon text-white'
+                      : !enabled
+                        ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-300'
                       : 'border-gray-300 bg-white text-gray-700 hover:border-brand-maroon'
                   }`}
                 >
@@ -113,10 +161,10 @@ export default function SocraticWizardStageDesigner({
                 <button
                   type="button"
                   disabled={stageKey === 'write'}
-                  onClick={() => updateStage(stageKey, { enabled: !enabled })}
+                  onClick={() => toggleStage(stageKey)}
                   title={stageKey === 'write' ? 'Write is required' : `${enabled ? 'Disable' : 'Enable'} ${config.label}`}
-                  className={`rounded-xl px-3 py-3 text-xs font-bold text-white transition-colors ${
-                    enabled ? 'bg-emerald-500' : 'bg-gray-400'
+                  className={`rounded-xl px-3 py-3 text-xs font-bold transition-colors ${
+                    enabled ? 'bg-yellow-400 text-gray-900' : 'bg-gray-400 text-white'
                   } disabled:cursor-not-allowed disabled:opacity-80`}
                 >
                   {enabled ? 'ON' : 'OFF'}
@@ -128,7 +176,7 @@ export default function SocraticWizardStageDesigner({
       </section>
 
       <nav className="flex overflow-x-auto border-b border-gray-200">
-        {SOCRATIC_STAGE_ORDER.map((stageKey) => {
+        {enabledStages.map((stageKey) => {
           const Icon = stageIcons[stageKey];
           const config = blueprint.stages[stageKey];
           return (
@@ -144,13 +192,12 @@ export default function SocraticWizardStageDesigner({
             >
               <Icon className="h-4 w-4" />
               {config.label}
-              {!config.enabled && stageKey !== 'write' ? (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase text-gray-500">Off</span>
-              ) : null}
             </button>
           );
         })}
       </nav>
+
+      {activeStage === 'research' ? researchMaterialsEditor : null}
 
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 p-5">
@@ -171,7 +218,7 @@ export default function SocraticWizardStageDesigner({
               readinessStale
                 ? 'border-orange-200 bg-orange-50 text-orange-700'
                 : readinessReady
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  ? 'border-yellow-300 bg-yellow-50 text-yellow-800'
                   : 'border-gray-200 bg-gray-50 text-gray-600'
             }`}>
               {readinessStale ? 'Goals may be stale' : readinessReady ? 'Goals ready' : 'Goals needed'}
@@ -180,18 +227,20 @@ export default function SocraticWizardStageDesigner({
               messageStale
                 ? 'border-orange-200 bg-orange-50 text-orange-700'
                 : messageReady
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  ? 'border-yellow-300 bg-yellow-50 text-yellow-800'
                   : 'border-gray-200 bg-gray-50 text-gray-600'
             }`}>
               {messageStale ? 'Message may be stale' : messageReady ? 'Student message ready' : 'Message needed'}
             </span>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700">
-              AI Chat
-              <Switch
-                checked={stage.aiAllowed}
-                onCheckedChange={(checked) => updateStage(activeStage, { aiAllowed: checked })}
-              />
-            </label>
+            {activeStage === 'research' || activeStage === 'write' ? (
+              <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700">
+                AI Chat
+                <Switch
+                  checked={stage.aiAllowed}
+                  onCheckedChange={(checked) => updateStage(activeStage, { aiAllowed: checked })}
+                />
+              </label>
+            ) : null}
           </div>
         </div>
 
@@ -215,7 +264,7 @@ export default function SocraticWizardStageDesigner({
                 <button
                   type="button"
                   onClick={() => void regenerate()}
-                  disabled={generatingStage !== null}
+                  disabled={generationInProgress}
                   className="inline-flex items-center gap-1 rounded-lg border border-brand-maroon px-3 py-2 text-xs font-semibold text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:opacity-50"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
@@ -271,9 +320,21 @@ export default function SocraticWizardStageDesigner({
           </div>
 
           <div className="rounded-xl border border-gray-200 p-5">
-            <div className="mb-4">
-              <h4 className="font-semibold text-gray-900">Opening Message — {stage.label}</h4>
-              <p className="mt-1 text-sm text-gray-500">The first tutor message shown when the student opens this stage.</p>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="font-semibold text-gray-900">Opening Message — {stage.label}</h4>
+                <p className="mt-1 text-sm text-gray-500">The first tutor message shown when the student opens this stage.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void regenerateMessage()}
+                disabled={generationInProgress}
+                title="Regenerate only this stage's opening message using the current goals and opening-message guidance."
+                className="inline-flex items-center gap-1 rounded-lg border border-brand-maroon px-3 py-2 text-xs font-semibold text-brand-maroon hover:bg-brand-maroon hover:text-white disabled:opacity-50"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {generatingMessageStage === activeStage ? 'Generating…' : 'Regenerate Message'}
+              </button>
             </div>
             <label className="mb-2 block text-sm font-semibold text-gray-700">Guidance for opening message</label>
             <Textarea
@@ -301,4 +362,3 @@ export default function SocraticWizardStageDesigner({
     </div>
   );
 }
-

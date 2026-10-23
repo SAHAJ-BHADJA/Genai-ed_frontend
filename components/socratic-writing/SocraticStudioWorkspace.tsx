@@ -1659,27 +1659,29 @@ function WorkspaceStageContent({
 
       {selectedStage === 'write' && (
         <div className="space-y-5">
-          <div className="rounded-2xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">AI writing tools</h3>
-            <div className="mt-4 grid gap-3">
-              {[
-                ['Check Clarity & Style', 'Analyze readability and tone without rewriting the draft.'],
-                ['Review Argument Flow', 'Check logical structure and transitions.'],
-                ['Identify Weak Points', 'Find claims that need stronger support.'],
-                ['Suggest Transitions', 'Get ideas for connecting paragraphs.'],
-              ].map(([title, description]) => (
-                <button
-                  key={title}
-                  type="button"
-                  onClick={() => setCoachDraft(`${title}: Review my current draft and guide me with questions and specific feedback. Do not rewrite it for me.`)}
-                  className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-purple-300 hover:bg-purple-50"
-                >
-                  <div className="font-semibold text-gray-900">{title}</div>
-                  <div className="mt-1 text-sm text-gray-600">{description}</div>
-                </button>
-              ))}
+          {stageConfig.aiAllowed ? (
+            <div className="rounded-2xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">AI writing tools</h3>
+              <div className="mt-4 grid gap-3">
+                {[
+                  ['Check Clarity & Style', 'Analyze readability and tone without rewriting the draft.'],
+                  ['Review Argument Flow', 'Check logical structure and transitions.'],
+                  ['Identify Weak Points', 'Find claims that need stronger support.'],
+                  ['Suggest Transitions', 'Get ideas for connecting paragraphs.'],
+                ].map(([title, description]) => (
+                  <button
+                    key={title}
+                    type="button"
+                    onClick={() => setCoachDraft(`${title}: Review my current draft and guide me with questions and specific feedback. Do not rewrite it for me.`)}
+                    className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left transition-colors hover:border-purple-300 hover:bg-purple-50"
+                  >
+                    <div className="font-semibold text-gray-900">{title}</div>
+                    <div className="mt-1 text-sm text-gray-600">{description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
           <FinalSocraticSubmissionCard
             blueprint={blueprint}
             finalQuiz={finalQuiz}

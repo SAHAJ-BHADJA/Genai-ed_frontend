@@ -13,6 +13,7 @@ type SocraticPdfReaderProps = {
 const END_THRESHOLD_PX = 32;
 const PDF_SCALE = 1.35;
 const PDF_TO_CSS_UNITS = 96 / 72;
+const PDF_RESIZE_THRESHOLD_PX = 24;
 
 export default function SocraticPdfReader({
   url,
@@ -45,7 +46,12 @@ export default function SocraticPdfReader({
 
     const updateViewerWidth = () => {
       const nextWidth = Math.floor(host.getBoundingClientRect().width);
-      setViewerWidth((current) => (current === nextWidth ? current : nextWidth));
+      setViewerWidth((current) => {
+        if (current > 0 && Math.abs(current - nextWidth) < PDF_RESIZE_THRESHOLD_PX) {
+          return current;
+        }
+        return nextWidth;
+      });
     };
 
     updateViewerWidth();
@@ -254,7 +260,10 @@ export default function SocraticPdfReader({
             Scroll to the end of the PDF to unlock completion.
           </p>
         </div>
-        <div ref={scrollRef} className="relative min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-gray-100 max-h-[min(70vh,760px)]">
+        <div
+          ref={scrollRef}
+          className="relative min-h-[420px] min-w-0 max-w-full overflow-x-hidden overflow-y-scroll bg-gray-100 [scrollbar-gutter:stable] max-h-[min(70vh,760px)]"
+        >
           <div className="socratic-pdf-viewer min-w-0 max-w-full p-3 sm:p-5">
             <div ref={pagesHostRef} className="w-full min-w-0 max-w-full overflow-x-hidden" />
             {!loading && !error && (

@@ -222,6 +222,8 @@ export default function SocraticAssignmentWizard() {
     verificationMethod: 'online_quiz' as const,
     stages: {
       ...source.stages,
+      clarify: { ...source.stages.clarify, aiAllowed: true },
+      build: { ...source.stages.build, aiAllowed: true },
       write: { ...source.stages.write, enabled: true },
     },
   }), [assignmentTitle, description, dueAt, pointsPossible, questionDocument, selectedCourse, selectedCourseId, wordCount, workingSessionId]);
@@ -756,6 +758,37 @@ export default function SocraticAssignmentWizard() {
     }
   };
 
+  const handleRegenerateStageMessage = async (stage: SocraticStageKey) => {
+    if (!blueprint) return;
+    try {
+      const current = buildCurrentBlueprint(blueprint);
+      const starterResult = await generateSocraticStarterResponse(stage, current, questionFile);
+      const withResponse: SocraticStudioBlueprint = {
+        ...current,
+        stages: {
+          ...current.stages,
+          [stage]: {
+            ...current.stages[stage],
+            starterResponse: starterResult.response,
+          },
+        },
+      };
+      const generated: SocraticStudioBlueprint = {
+        ...withResponse,
+        starterGenerationSignatures: {
+          ...(withResponse.starterGenerationSignatures || {}),
+          [stage]: getStarterSignature(stage, withResponse),
+        },
+      };
+      setBlueprint(generated);
+      toast.success(`${generated.stages[stage].label} opening message regenerated.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Opening message generation failed.';
+      toast.error(message);
+      throw error;
+    }
+  };
+
   const isStageGenerationCurrent = (stage: SocraticStageKey, source: SocraticStudioBlueprint) => {
     const config = source.stages[stage];
     return config.readinessQuestions.some((goal) => goal.trim())
@@ -1055,7 +1088,7 @@ export default function SocraticAssignmentWizard() {
                 className={classNames(
                   'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium',
                   active && 'bg-brand-maroon text-white',
-                  complete && 'bg-emerald-100 text-emerald-700',
+                  complete && 'bg-yellow-100 text-yellow-800',
                   !active && !complete && 'bg-gray-100 text-gray-500',
                 )}
               >
@@ -1063,7 +1096,7 @@ export default function SocraticAssignmentWizard() {
                 {label}
               </button>
               {index < WIZARD_STEPS.length - 1 ? (
-                <span className={classNames('h-0.5 w-6', complete ? 'bg-emerald-300' : 'bg-gray-200')} />
+                <span className={classNames('h-0.5 w-6', complete ? 'bg-yellow-400' : 'bg-gray-200')} />
               ) : null}
             </div>
           );
@@ -1111,6 +1144,19 @@ export default function SocraticAssignmentWizard() {
     </section>
   );
 
+  const renderResearchMaterialsEditor = () => blueprint ? (
+    <SocraticWizardMaterials
+      blueprint={blueprint}
+      availableReadings={availableReadings}
+      availableQuizzes={availableQuizzes}
+      availableAvatarLectures={availableAvatarLectures}
+      onChange={setBlueprint}
+      onUploadReading={handleUploadReading}
+      onCreateQuiz={() => void navigateToResourceCreator('quiz')}
+      onCreateAvatarLecture={() => void navigateToResourceCreator('avatar_lecture')}
+    />
+  ) : null;
+
   const renderAssignmentStep = () => {
     if (!blueprint || !selectedCourse || !sessionReady) {
       return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-maroon" /></div>;
@@ -1153,16 +1199,7 @@ export default function SocraticAssignmentWizard() {
           </div>
         </section>
 
-        <SocraticWizardMaterials
-          blueprint={blueprint}
-          availableReadings={availableReadings}
-          availableQuizzes={availableQuizzes}
-          availableAvatarLectures={availableAvatarLectures}
-          onChange={setBlueprint}
-          onUploadReading={handleUploadReading}
-          onCreateQuiz={() => void navigateToResourceCreator('quiz')}
-          onCreateAvatarLecture={() => void navigateToResourceCreator('avatar_lecture')}
-        />
+        {renderResearchMaterialsEditor()}
       </div>
     );
   };
@@ -1172,8 +1209,10 @@ export default function SocraticAssignmentWizard() {
       blueprint={blueprint}
       onChange={setBlueprint}
       onRegenerateStage={handleRegenerateStage}
+      onRegenerateMessage={handleRegenerateStageMessage}
       getReadinessSignature={getReadinessSignature}
       getStarterSignature={getStarterSignature}
+      researchMaterialsEditor={renderResearchMaterialsEditor()}
     />
   ) : null;
 

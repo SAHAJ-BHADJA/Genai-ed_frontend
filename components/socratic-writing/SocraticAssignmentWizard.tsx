@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   Check,
   CheckCircle2,
   Clock3,
@@ -36,8 +37,11 @@ import {
   clearPendingSocraticCreatedResource,
   createDefaultStudioBlueprint,
   createPreviewStudioSession,
+  DEFAULT_SOCRATIC_MODEL_ID,
+  getSocraticModelLabel,
   loadPendingSocraticCreatedResource,
   saveSocraticPreviewPayload,
+  SOCRATIC_MODEL_OPTIONS,
   SOCRATIC_STAGE_ORDER,
   SocraticResource,
   SocraticStageKey,
@@ -232,6 +236,7 @@ export default function SocraticAssignmentWizard() {
     if (!source) return '';
     const current = buildCurrentBlueprint(source);
     return makeSignature({
+      model: current.model,
       title: current.assignmentTitle,
       brief: current.assignmentBrief,
       document: current.assignmentDocument,
@@ -866,6 +871,10 @@ export default function SocraticAssignmentWizard() {
         toast.error('Assignment title and description are required.');
         return;
       }
+      if (!wordCount.trim() || Number(wordCount) <= 0) {
+        toast.error('Target word count must be greater than zero.');
+        return;
+      }
       await generateAllStagesAndOpenDesigner();
       return;
     }
@@ -1179,6 +1188,32 @@ export default function SocraticAssignmentWizard() {
               <label className="mb-2 block text-sm font-semibold text-gray-700">Assignment Description <span className="text-red-600">*</span></label>
               <Textarea rows={6} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the assignment prompt, expectations, and context students should know…" />
             </div>
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">AI Model <span className="text-red-600">*</span></label>
+                <div className="relative">
+                  <Bot className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-maroon" />
+                  <select
+                    value={blueprint.model}
+                    onChange={(event) => setBlueprint({ ...blueprint, model: event.target.value })}
+                    className="h-10 w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {!SOCRATIC_MODEL_OPTIONS.some((model) => model.id === blueprint.model) ? (
+                      <option value={blueprint.model}>{getSocraticModelLabel(blueprint.model)} (Existing selection)</option>
+                    ) : null}
+                    {SOCRATIC_MODEL_OPTIONS.map((model) => (
+                      <option key={model.id} value={model.id}>{model.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">Used for generation, student tutoring, the final quiz, and the submission report.</p>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">Target Word Count <span className="text-red-600">*</span></label>
+                <Input type="number" min="1" value={wordCount} onChange={(event) => setWordCount(event.target.value)} />
+                <p className="mt-2 text-xs text-gray-500">Used when generating each stage’s readiness goals and opening message.</p>
+              </div>
+            </div>
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <label className="text-sm font-semibold text-gray-700">Question PDF <span className="font-normal text-gray-400">(optional)</span></label>
@@ -1280,8 +1315,8 @@ export default function SocraticAssignmentWizard() {
       <div className="space-y-5">
         <section className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
           <h2 className="text-xl font-semibold text-gray-900">Grading & Availability</h2>
-          <p className="mt-1 text-gray-500">Set timing, marks, and writing expectations before publishing.</p>
-          <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+          <p className="mt-1 text-gray-500">Set timing and marks before publishing.</p>
+          <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700">Available From <span className="font-normal text-gray-400">(optional)</span></label>
               <Input type="datetime-local" value={availableAt} onChange={(event) => setAvailableAt(event.target.value)} />
@@ -1297,10 +1332,6 @@ export default function SocraticAssignmentWizard() {
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700">Assignment Points</label>
               <Input type="number" min="0" value={pointsPossible} onChange={(event) => setPointsPossible(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">Target Word Count</label>
-              <Input type="number" min="1" value={wordCount} onChange={(event) => setWordCount(event.target.value)} />
             </div>
           </div>
         </section>
@@ -1318,6 +1349,7 @@ export default function SocraticAssignmentWizard() {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <SummaryCard label="Course" value={`${selectedCourse.course_number} — ${selectedCourse.title}`} />
             <SummaryCard label="Assignment" value={assignmentTitle || 'Untitled assignment'} detail={description} />
+            <SummaryCard label="AI Model" value={getSocraticModelLabel(blueprint.model)} detail="Used throughout this Socratic assignment." />
             <SummaryCard label="Enabled Stages" value={enabledStageLabels.join(', ')} />
             <SummaryCard label="Research Materials" value={blueprint.resources.length ? `${blueprint.resources.length} attached` : 'None'} detail={blueprint.resources.map((resource) => resource.title).join(', ')} />
             <SummaryCard label="Verification" value="Online Quiz" detail="5 multiple-choice questions · 20 minutes · completion required" />
@@ -1379,6 +1411,7 @@ export default function SocraticAssignmentWizard() {
               <div className="font-semibold text-gray-800">Generation context</div>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>Course, assignment title, description, and target word count</li>
+                <li>Selected model: {getSocraticModelLabel(blueprint?.model || DEFAULT_SOCRATIC_MODEL_ID)}</li>
                 <li>{questionDocument ? `Question PDF: ${questionDocument.name}` : 'No question PDF attached'}</li>
                 <li>{blueprint?.resources.length || 0} explicitly attached research material{blueprint?.resources.length === 1 ? '' : 's'}</li>
                 <li>Stage purpose and educator guidance for each stage</li>

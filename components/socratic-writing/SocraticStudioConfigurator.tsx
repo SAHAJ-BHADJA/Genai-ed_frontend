@@ -24,6 +24,7 @@ import {
   DEFAULT_STAGE_READINESS_PROMPTS,
   DEFAULT_STAGE_RUNTIME_PROMPTS,
   DEFAULT_STAGE_STARTER_PROMPTS,
+  SOCRATIC_MODEL_OPTIONS,
   SOCRATIC_STAGE_ORDER,
   SocraticResource,
   SocraticStudioBlueprint,
@@ -74,12 +75,6 @@ const resourceLabels = {
   lecture: 'Lecture',
   source: 'Source',
 } satisfies Record<SocraticResource['type'], string>;
-
-const SOCRATIC_MODEL_OPTIONS = [
-  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
-  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
-  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-];
 
 const promptHelp = {
   globalPrompt:
@@ -454,6 +449,9 @@ export default function SocraticStudioConfigurator({
               onChange={(event) => onChange({ ...blueprint, model: event.target.value })}
               className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900"
             >
+              {!SOCRATIC_MODEL_OPTIONS.some((model) => model.id === blueprint.model) ? (
+                <option value={blueprint.model}>{blueprint.model} (Existing selection)</option>
+              ) : null}
               {SOCRATIC_MODEL_OPTIONS.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
             </select>
           </div>

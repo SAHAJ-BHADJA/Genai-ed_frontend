@@ -5,6 +5,18 @@ import writeRuntimePrompt from './socratic-stage-prompts/write-system-prompt.md'
 
 export const SOCRATIC_STAGE_ORDER = ['clarify', 'research', 'build', 'write'] as const;
 
+export const DEFAULT_SOCRATIC_MODEL_ID = 'gpt-5.6-sol';
+
+export const SOCRATIC_MODEL_OPTIONS = [
+  { id: 'gpt-6-sol', label: 'GPT-6 Sol' },
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+  { id: 'claude-opus-4.8', label: 'Claude Opus 4.8' },
+] as const;
+
+export const getSocraticModelLabel = (modelId: string) => (
+  SOCRATIC_MODEL_OPTIONS.find((model) => model.id === modelId)?.label || modelId
+);
+
 export type SocraticStageKey = (typeof SOCRATIC_STAGE_ORDER)[number];
 export type SocraticStageStatus = 'not_started' | 'in_progress' | 'completed';
 export type SocraticResourceType = 'reading' | 'quiz' | 'avatar_lecture' | 'lecture' | 'source';
@@ -752,7 +764,7 @@ export const createDefaultStudioBlueprint = (
   dueAt: input.dueAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   pointsPossible: input.pointsPossible || 100,
   wordCount: input.wordCount || 1500,
-  model: 'gpt-5.6-sol',
+  model: DEFAULT_SOCRATIC_MODEL_ID,
   builderVersion: 'v1',
   verificationMethod: 'online_quiz',
   promptControls: { ...DEFAULT_SOCRATIC_PROMPT_CONTROLS },

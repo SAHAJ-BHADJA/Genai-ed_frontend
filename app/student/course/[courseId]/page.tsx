@@ -349,7 +349,7 @@ export default function StudentCourse() {
 
     const { data: assignmentRows, error: assignmentRowsError } = await supabase
       .from('assignments')
-      .select('id, experience_type')
+      .select('id, experience_type, assignment_number')
       .in('id', normalizedAssignments.map((assignment) => assignment.id));
 
     if (assignmentRowsError) {
@@ -358,18 +358,35 @@ export default function StudentCourse() {
       return;
     }
 
-    const experienceTypeById = new Map(
-      ((assignmentRows || []) as Array<{ id: string; experience_type: StudentCourseAssignment['experience_type'] }>).map((row) => [
-        row.id,
-        row.experience_type || 'standard',
-      ]),
+    const assignmentMetadataById = new Map(
+      ((assignmentRows || []) as Array<{
+        id: string;
+        experience_type: StudentCourseAssignment['experience_type'];
+        assignment_number: number;
+      }>).map((row) => [row.id, row]),
     );
 
     setStudentAssignments(
-      normalizedAssignments.map((assignment) => ({
-        ...assignment,
-        experience_type: experienceTypeById.get(assignment.id) || 'standard',
-      })),
+      normalizedAssignments
+        .map((assignment) => {
+          const metadata = assignmentMetadataById.get(assignment.id);
+
+          return {
+            ...assignment,
+            assignment_number: metadata?.assignment_number,
+            experience_type: metadata?.experience_type || 'standard',
+          };
+        })
+        .sort((firstAssignment, secondAssignment) => {
+          const firstNumber = firstAssignment.assignment_number ?? Number.MAX_SAFE_INTEGER;
+          const secondNumber = secondAssignment.assignment_number ?? Number.MAX_SAFE_INTEGER;
+
+          if (firstNumber !== secondNumber) {
+            return firstNumber - secondNumber;
+          }
+
+          return firstAssignment.created_at.localeCompare(secondAssignment.created_at);
+        }),
     );
   };
 

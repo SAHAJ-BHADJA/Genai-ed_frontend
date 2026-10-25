@@ -31,6 +31,7 @@ export type AssignmentRecord = {
 export type StudentCourseAssignment = {
   id: string;
   course_id: string;
+  assignment_number?: number;
   assignment_label: string;
   assignment_title: string;
   description: string | null;

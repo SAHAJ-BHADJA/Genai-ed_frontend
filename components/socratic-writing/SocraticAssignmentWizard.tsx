@@ -150,6 +150,77 @@ const fromDateTimeLocalValue = (value: string) => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
+const splitDateTimeLocalValue = (value: string) => {
+  const [date = '', rawTime = ''] = value.split('T');
+  return { date, time: rawTime.slice(0, 5) };
+};
+
+const DateTimeField = ({
+  id,
+  label,
+  value,
+  onChange,
+  optional = false,
+  defaultTime,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  optional?: boolean;
+  defaultTime: string;
+}) => {
+  const parts = splitDateTimeLocalValue(value);
+  const handleDateChange = (nextDate: string) => {
+    if (!nextDate) {
+      onChange('');
+      return;
+    }
+    onChange(`${nextDate}T${parts.time || defaultTime}`);
+  };
+  const handleTimeChange = (nextTime: string) => {
+    if (!parts.date) return;
+    onChange(`${parts.date}T${nextTime || defaultTime}`);
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4" role="group" aria-label={label}>
+      <div className="mb-3 flex min-h-5 items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-gray-700">
+          {label} {optional ? <span className="font-normal text-gray-400">(optional)</span> : <span className="text-red-600">*</span>}
+        </div>
+        {optional && value ? (
+          <button type="button" onClick={() => onChange('')} className="text-xs font-semibold text-brand-maroon hover:underline">
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(8rem,2fr)]">
+        <div>
+          <label htmlFor={`${id}-date`} className="mb-1.5 block text-xs font-medium text-gray-500">Date</label>
+          <Input
+            id={`${id}-date`}
+            type="date"
+            value={parts.date}
+            onChange={(event) => handleDateChange(event.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor={`${id}-time`} className="mb-1.5 block text-xs font-medium text-gray-500">Time</label>
+          <Input
+            id={`${id}-time`}
+            type="time"
+            step={300}
+            value={parts.time}
+            disabled={!parts.date}
+            onChange={(event) => handleTimeChange(event.target.value)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const stripUploadTimestamp = (value: string) => value.replace(/^\d{10,}[-_]/, '').trim();
 
 const fileNameFromUrl = (value: string | null | undefined) => {
@@ -805,12 +876,12 @@ export default function SocraticAssignmentWizard() {
   const allGenerationCurrent = (source: SocraticStudioBlueprint) =>
     SOCRATIC_STAGE_ORDER.every((stage) => isStageGenerationCurrent(stage, source));
 
-  const generateAllStagesAndOpenDesigner = async () => {
-    if (!blueprint) return;
+  const generateAllStagesAndOpenDesigner = async (sourceBlueprint = blueprint) => {
+    if (!sourceBlueprint) return;
     setGenerating(true);
     setGenerationError('');
     try {
-      let current = buildCurrentBlueprint(blueprint);
+      let current = buildCurrentBlueprint(sourceBlueprint);
       const readinessResult = await generateSocraticReadinessQuestions(current, questionFile);
       current = {
         ...current,
@@ -859,6 +930,13 @@ export default function SocraticAssignmentWizard() {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const switchToDefaultModelAndRetryGeneration = () => {
+    if (!blueprint) return;
+    const nextBlueprint = { ...blueprint, model: DEFAULT_SOCRATIC_MODEL_ID };
+    setBlueprint(nextBlueprint);
+    void generateAllStagesAndOpenDesigner(nextBlueprint);
   };
 
   const handleContinue = async () => {
@@ -1316,20 +1394,12 @@ export default function SocraticAssignmentWizard() {
         <section className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
           <h2 className="text-xl font-semibold text-gray-900">Grading & Availability</h2>
           <p className="mt-1 text-gray-500">Set timing and marks before publishing.</p>
-          <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">Available From <span className="font-normal text-gray-400">(optional)</span></label>
-              <Input type="datetime-local" value={availableAt} onChange={(event) => setAvailableAt(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">Due Date <span className="text-red-600">*</span></label>
-              <Input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">Late Until <span className="font-normal text-gray-400">(optional)</span></label>
-              <Input type="datetime-local" value={lateUntil} onChange={(event) => setLateUntil(event.target.value)} />
-            </div>
-            <div>
+          <p className="mt-2 text-xs text-gray-400">Dates and times use your browser’s local time zone.</p>
+          <div className="mt-6 grid gap-5 lg:grid-cols-2">
+            <DateTimeField id="available-at" label="Available From" value={availableAt} onChange={setAvailableAt} optional defaultTime="09:00" />
+            <DateTimeField id="due-at" label="Due Date" value={dueAt} onChange={setDueAt} defaultTime="23:59" />
+            <DateTimeField id="late-until" label="Late Until" value={lateUntil} onChange={setLateUntil} optional defaultTime="23:59" />
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
               <label className="mb-2 block text-sm font-semibold text-gray-700">Assignment Points</label>
               <Input type="number" min="0" value={pointsPossible} onChange={(event) => setPointsPossible(event.target.value)} />
             </div>
@@ -1428,8 +1498,13 @@ export default function SocraticAssignmentWizard() {
             <h2 className="text-xl font-semibold text-gray-900">Stage generation did not finish</h2>
             <p className="mt-2 break-words text-sm leading-6 text-gray-600">{generationError}</p>
             <p className="mt-3 text-sm text-gray-500">You remain in Assignment Setup. No assignment was published.</p>
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
               <button type="button" onClick={() => setGenerationError('')} className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700">Close</button>
+              {blueprint?.model === 'claude-opus-4.8' && generationError.includes('ANTHROPIC_API_KEY') ? (
+                <button type="button" onClick={switchToDefaultModelAndRetryGeneration} className="rounded-lg border border-brand-maroon px-4 py-2 font-semibold text-brand-maroon hover:bg-red-50">
+                  Use GPT-5.6 Sol & Retry
+                </button>
+              ) : null}
               <button type="button" onClick={() => void generateAllStagesAndOpenDesigner()} className="rounded-lg bg-brand-maroon px-4 py-2 font-semibold text-white">Retry</button>
             </div>
           </div>

@@ -426,106 +426,124 @@ export default function CreateLecture() {
       if (isCreatingDraftRef.current) return;
       isCreatingDraftRef.current = true;
       setIsSavingDraft(true);
+      let createdDraftId: string | null = null;
       const releaseDraftLock = () => {
         isCreatingDraftRef.current = false;
         setIsSavingDraft(false);
       };
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        releaseDraftLock();
-        toast.error('You must be logged in');
-        return;
-      }
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          throw new Error('You must be logged in');
+        }
 
-      const primaryCourseId = selectedCourseIds[0];
-      if (!primaryCourseId) {
-        releaseDraftLock();
-        toast.error('Please select at least one course');
-        return;
-      }
+        const primaryCourseId = selectedCourseIds[0];
+        if (!primaryCourseId) {
+          throw new Error('Please select at least one course');
+        }
 
-      const { data: existingDrafts, error: existingDraftError } = await supabase
-        .from('lectures')
-        .select('id')
-        .eq('creator_role', 'student')
-        .eq('creator_user_id', user.id)
-        .eq('course_id', primaryCourseId)
-        .in('status', ['draft', 'failed'])
-        .order('updated_at', { ascending: false })
-        .limit(1);
+        const { data: existingDrafts, error: existingDraftError } = await supabase
+          .from('lectures')
+          .select('id')
+          .eq('creator_role', 'student')
+          .eq('creator_user_id', user.id)
+          .eq('course_id', primaryCourseId)
+          .in('status', ['draft', 'failed'])
+          .order('updated_at', { ascending: false })
+          .limit(1);
 
-      if (existingDraftError) {
-        releaseDraftLock();
-        console.error('Error checking existing private draft:', existingDraftError);
-        toast.error('Failed to check existing private drafts');
-        return;
-      }
+        if (existingDraftError) {
+          console.error('Error checking existing private draft:', existingDraftError);
+          throw new Error('Failed to check existing private drafts');
+        }
 
-      if (existingDrafts && existingDrafts.length > 0) {
-        router.push(`/student/create-lecture?lectureId=${existingDrafts[0].id}&courseId=${primaryCourseId}`);
-        return;
-      }
-
-      const { data: draftLecture, error } = await supabase
-        .from('lectures')
-        .insert({
-          creator_role: 'student',
-          creator_user_id: user.id,
-          educator_id: user.id,
-          course_id: primaryCourseId,
-          selected_course_ids: selectedCourseIds,
-          title: aiPrompt.trim().slice(0, 100) || 'Private Avatar Lecture',
-          content_style: [],
-          script_prompt: aiPrompt.trim() || null,
-          video_length: videoLength,
-          status: 'draft'
-        })
-        .select()
-        .single();
-
-      if (error) {
-        releaseDraftLock();
-        console.error('Error creating draft:', error);
-        toast.error('Failed to save draft');
-        return;
-      }
-
-      if (draftLecture) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          await supabase.from('lectures').delete().eq('id', draftLecture.id);
-          releaseDraftLock();
-          toast.error('Session expired. Please log in again.');
+        if (existingDrafts && existingDrafts.length > 0) {
+          setCurrentStep(2);
+          setExpandedStep(2);
+          router.push(`/student/create-lecture?lectureId=${existingDrafts[0].id}&courseId=${primaryCourseId}`);
           return;
         }
 
-        const courseLinkResponse = await fetch(
-          `${BACKEND_URL}/api/lectures/${draftLecture.id}/private-course-links`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
+        const { data: draftLecture, error } = await supabase
+          .from('lectures')
+          .insert({
+            creator_role: 'student',
+            creator_user_id: user.id,
+            educator_id: user.id,
+            course_id: primaryCourseId,
+            selected_course_ids: selectedCourseIds,
+            title: aiPrompt.trim().slice(0, 100) || 'Private Avatar Lecture',
+            content_style: [],
+            script_prompt: aiPrompt.trim() || null,
+            video_length: videoLength,
+            status: 'draft'
+          })
+          .select()
+          .single();
+
+        if (error || !draftLecture) {
+          console.error('Error creating draft:', error);
+          throw new Error('Failed to save draft');
+        }
+
+        createdDraftId = draftLecture.id;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          throw new Error('Session expired. Please log in again.');
+        }
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+        let courseLinkResponse: Response;
+        try {
+          courseLinkResponse = await fetch(
+            `${BACKEND_URL}/api/lectures/${draftLecture.id}/private-course-links`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ courseIds: selectedCourseIds }),
+              signal: controller.signal,
             },
-            body: JSON.stringify({ courseIds: selectedCourseIds }),
-          },
-        );
+          );
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
 
         if (!courseLinkResponse.ok) {
           const courseLinkError = await courseLinkResponse.text();
-          await supabase.from('lectures').delete().eq('id', draftLecture.id);
-          releaseDraftLock();
           console.error('Error linking private lecture to course:', courseLinkError);
-          toast.error('Failed to link the lecture to your course');
-          return;
+          throw new Error('Failed to link the lecture to your course');
         }
 
+        createdDraftId = null;
+        setCurrentStep(2);
+        setExpandedStep(2);
         router.push(`/student/create-lecture?lectureId=${draftLecture.id}&courseId=${primaryCourseId}`);
-        return;
+      } catch (error) {
+        if (createdDraftId) {
+          const { error: cleanupError } = await supabase
+            .from('lectures')
+            .delete()
+            .eq('id', createdDraftId);
+          if (cleanupError) {
+            console.error('Error cleaning up incomplete private draft:', cleanupError);
+          }
+        }
+        console.error('Error saving private lecture draft:', error);
+        const message = error instanceof DOMException && error.name === 'AbortError'
+          ? 'The backend did not respond in time. Please try again.'
+          : error instanceof Error
+            ? error.message
+            : 'Failed to save draft';
+        toast.error(message);
+      } finally {
+        releaseDraftLock();
       }
-
-      releaseDraftLock();
+      return;
     }
 
     setCurrentStep(2);

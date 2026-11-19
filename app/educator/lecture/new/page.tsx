@@ -10,6 +10,7 @@ import { getBackendBase } from '@/lib/backend';
 import { validateFileSize } from '@/lib/fileUpload';
 import { AvatarName, AvatarVoiceMap } from "@/lib/avatarVoiceMap";
 import { savePendingSocraticCreatedResource } from '@/lib/socraticWriting';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 
 type MaterialWithType = {
   url: string;
@@ -349,12 +350,9 @@ export default function CreateLecture() {
         if (lectureData.status === 'generated' || lectureData.status === 'published') {
           setContentGenerated(true);
 
-          const { data: artifacts, error: artifactsError } = await supabase
-            .from('lecture_artifacts')
-            .select('*')
-            .eq('lecture_id', lectureIdToLoad);
+          const artifacts = await fetchLectureArtifacts(lectureIdToLoad);
 
-          if (!artifactsError && artifacts && artifacts.length > 0) {
+          if (artifacts.length > 0) {
             const artifactMap: Record<string, string> = {};
             artifacts.forEach(artifact => {
               artifactMap[artifact.artifact_type] = artifact.file_url;
@@ -1188,12 +1186,7 @@ SLIDE 1: Untitled Lecture
   
       if (jobsError) throw jobsError;
   
-      const { data: artifacts, error: artifactsError } = await supabase
-        .from('lecture_artifacts')
-        .select('*')
-        .eq('lecture_id', lectureIdToPoll);
-  
-      if (artifactsError) throw artifactsError;
+      const artifacts = await fetchLectureArtifacts(lectureIdToPoll);
   
       if (!isMountedRef.current) return;
   
@@ -1227,10 +1220,11 @@ SLIDE 1: Untitled Lecture
         });
   
       if (allJobsFinished) {
-        const anySucceeded = requiredJobs.some(jobType => jobsMap[jobType]?.status === 'succeeded');
+        const allSucceeded = requiredJobs.every(jobType => jobsMap[jobType]?.status === 'succeeded');
+        const allArtifactsPresent = requiredJobs.every(jobType => Boolean(artifactsMap[JOB_TO_ARTIFACT[jobType]]));
   
         // Grace window: give artifacts time to show up after job success
-        if (anySucceeded && Object.keys(artifactsMap).length === 0) {
+        if (allSucceeded && !allArtifactsPresent) {
           if (!finishedAtRef.current) finishedAtRef.current = Date.now();
           if (Date.now() - finishedAtRef.current < 10_000) {
             return;
@@ -1246,12 +1240,13 @@ SLIDE 1: Untitled Lecture
   
         setIsGenerating(false);
   
-        if (anySucceeded && Object.keys(artifactsMap).length > 0) {
+        if (allSucceeded && allArtifactsPresent) {
           setContentGenerated(true);
-          await supabase.from('lectures').update({ status: 'generated' }).eq('id', lectureIdToPoll);
           toast.success('Content generated successfully!');
         } else {
-          toast.error('Content generation failed. Please check errors and try again.');
+          setContentGenerated(false);
+          const failedTypes = requiredJobs.filter(jobType => jobsMap[jobType]?.status === 'failed');
+          toast.error(`Content generation failed for: ${failedTypes.join(', ') || 'missing artifacts'}. Please retry.`);
         }
       }
     } catch (error) {
@@ -1279,6 +1274,11 @@ SLIDE 1: Untitled Lecture
       if (jobsError) throw jobsError;
 
       if (existingJobsData && existingJobsData.length > 0) {
+        const activeJobs = existingJobsData.filter(job => job.status === 'queued' || job.status === 'running');
+        const failedJobs = existingJobsData.filter(job => job.status === 'failed');
+        if (failedJobs.length > 0 && activeJobs.length === 0) {
+          return { blocked: false, reason: '', jobs: existingJobsData };
+        }
         const jobTypes = existingJobsData.map(j => j.job_type).join(', ');
         return {
           blocked: true,
@@ -1513,7 +1513,7 @@ SLIDE 1: Untitled Lecture
   
         jobIdsRef.current = jobIds;
   
-        toast.info('Backend processing started. Monitoring progress...');
+        toast.info('Generation queued. You may leave this page while it finishes.');
   
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
   
@@ -1590,35 +1590,27 @@ SLIDE 1: Untitled Lecture
     }
 
     try {
-      const { data: artifacts, error: artifactsError } = await supabase
-        .from('lecture_artifacts')
-        .select('artifact_type, file_url')
-        .eq('lecture_id', lectureId);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error('Session expired. Please log in again.');
 
-      if (artifactsError) throw artifactsError;
-
-      if (!artifacts || artifacts.length === 0) {
-        toast.error('Cannot publish: No content artifacts found. Please generate content first.');
-        return;
+      const response = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          selectedCourseIds,
+          libraryPersonal: addToPersonalLibrary,
+          libraryUsc: addToUSCLibrary,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: string | { message?: string } } | null;
+        const detail = typeof payload?.detail === 'string' ? payload.detail : payload?.detail?.message;
+        throw new Error(detail || 'The lecture is not ready to publish.');
       }
-
-      const validArtifacts = artifacts.filter(a => a.file_url && a.file_url.trim() !== '');
-      if (validArtifacts.length === 0) {
-        toast.error('Cannot publish: No valid content artifacts with URLs found. Please generate content first.');
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from('lectures')
-        .update({
-          selected_course_ids: selectedCourseIds,
-          library_personal: addToPersonalLibrary,
-          library_usc: addToUSCLibrary,
-          status: 'published'
-        })
-        .eq('id', lectureId);
-
-      if (updateError) throw updateError;
 
       toast.success('Content published successfully!');
       if (returnTo && socraticAttach === 'avatar_lecture' && lectureId) {

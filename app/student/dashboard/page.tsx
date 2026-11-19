@@ -12,7 +12,8 @@ import {
   Lightbulb,
   ClipboardCheck,
   Clock,
-  MessageSquare
+  MessageSquare,
+  Lock,
 } from 'lucide-react';
 
 interface Course {
@@ -229,6 +230,7 @@ export default function StudentDashboard() {
           `)
           .eq('creator_user_id', user.id)
           .eq('creator_role', 'student')
+          .in('status', ['completed', 'generating'])
           .order('created_at', { ascending: false })
           .limit(6);
 
@@ -385,7 +387,12 @@ export default function StudentDashboard() {
 
         {myLectures.length > 0 && (
           <section>
-            <h2 className="text-2xl font-bold text-foreground mb-4">My Lectures</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-foreground">My Private Avatar Lectures</h2>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                <Lock className="h-3.5 w-3.5" />Only you
+              </span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {myLectures.map((lecture) => (
                 <LectureCard
@@ -394,6 +401,7 @@ export default function StudentDashboard() {
                   courseCode={lecture.course_code}
                   instructorName={lecture.instructor_name}
                   isNew={lecture.isNew}
+                  isPrivateLecture={true}
                   onClick={() => router.push(`/student/course/${lecture.course_id}/my/lecture/${lecture.id}`)}
                 />
               ))}

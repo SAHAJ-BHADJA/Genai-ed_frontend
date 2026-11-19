@@ -18,7 +18,7 @@ import {
   getStudentAssignmentCardStatus,
   StudentCourseAssignment,
 } from '@/lib/assignments';
-import { BookOpen, MessageSquare, Upload, FileText, Trash2, Send, Video, SquareCheck as CheckSquare, FileCheck, ClipboardList, ChartBar as BarChart3, Clock, Calendar, Eye } from 'lucide-react';
+import { BookOpen, MessageSquare, Upload, FileText, Trash2, Send, Video, SquareCheck as CheckSquare, FileCheck, ClipboardList, ChartBar as BarChart3, Clock, Calendar, Eye, Lock, Plus } from 'lucide-react';
 
 const backendBase = getBackendBase();
 
@@ -118,6 +118,7 @@ export default function StudentCourse() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'lectures' | 'assignments' | 'quiz' | 'chat' | 'uploads'>('overview');
+  const [lectureFilter, setLectureFilter] = useState<'all' | 'course' | 'private'>('all');
   const [course, setCourse] = useState<Course | null>(null);
   const [courseLectures, setCourseLectures] = useState<Lecture[]>([]);
   const [myLectures, setMyLectures] = useState<StudentLecture[]>([]);
@@ -139,7 +140,6 @@ export default function StudentCourse() {
   });
   const [prompt, setPrompt] = useState('');
   const [videoLength, setVideoLength] = useState(5);
-  const [generating, setGenerating] = useState(false);
 
   const assignmentSummaryData = useMemo(() => {
     return {
@@ -255,7 +255,11 @@ export default function StudentCourse() {
 
         if (lecture.creator_role === 'educator' && (lecture.status === 'completed' || lecture.status === 'published')) {
           educatorLectures.push(formattedLecture);
-        } else if (lecture.creator_role === 'student' && lecture.creator_user_id === userId) {
+        } else if (
+          lecture.creator_role === 'student'
+          && lecture.creator_user_id === userId
+          && (lecture.status === 'completed' || lecture.status === 'generating')
+        ) {
           studentLectures.push(formattedLecture);
         }
       });
@@ -691,34 +695,14 @@ export default function StudentCourse() {
     setUploads(uploads.filter(u => u.id !== uploadId));
   };
 
-  const handleGenerateLecture = async () => {
+  const handleGenerateLecture = () => {
     if (!prompt.trim()) return;
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    setGenerating(true);
-
-    const { data: newLecture, error } = await supabase
-      .from('lectures')
-      .insert({
-        creator_role: 'student',
-        creator_user_id: user.id,
-        educator_id: user.id,
-        course_id: courseId,
-        title: prompt.slice(0, 100),
-        script_prompt: prompt,
-        video_length: videoLength,
-        status: 'generating'
-      })
-      .select()
-      .single();
-
-    setGenerating(false);
-
-    if (!error && newLecture) {
-      router.push(`/student/course/${courseId}/my/lecture/${newLecture.id}`);
-    }
+    const query = new URLSearchParams({
+      courseId,
+      prompt: prompt.trim(),
+      videoLength: String(videoLength),
+    });
+    router.push(`/student/create-lecture?${query.toString()}`);
   };
 
   const formatTimeAgo = (dateString: string) => {
@@ -851,8 +835,43 @@ export default function StudentCourse() {
 
         {activeTab === 'lectures' && (
           <div className="space-y-8">
-            <section>
-              <h2 className="text-xl font-bold text-foreground mb-4">Course Lectures</h2>
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
+              <div className="flex flex-wrap gap-2" aria-label="Lecture filters">
+                {([
+                  { id: 'all', label: 'All Lectures', count: courseLectures.length + myLectures.length },
+                  { id: 'course', label: 'Course Lectures', count: courseLectures.length },
+                  { id: 'private', label: 'My Private', count: myLectures.length },
+                ] as const).map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setLectureFilter(filter.id)}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      lectureFilter === filter.id
+                        ? 'bg-brand-maroon text-white'
+                        : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {filter.id === 'private' && <Lock className="mr-1.5 inline h-3.5 w-3.5" />}
+                    {filter.label} ({filter.count})
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push(`/student/create-lecture?courseId=${courseId}`)}
+                className="flex items-center gap-2 rounded-lg bg-brand-maroon px-4 py-2 text-sm font-semibold text-white hover:bg-brand-maroon-hover"
+              >
+                <Plus className="h-4 w-4" />
+                Create Private Avatar Lecture
+              </button>
+            </div>
+
+            {(lectureFilter === 'all' || lectureFilter === 'course') && <section>
+              <div className="mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground">Course Lectures</h2>
+                <span className="rounded-full bg-brand-maroon px-2.5 py-1 text-xs font-semibold text-white">Shared by educator</span>
+              </div>
               {courseLectures.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {courseLectures.map((lecture) => (
@@ -872,10 +891,15 @@ export default function StudentCourse() {
                   <p className="text-muted-foreground">No lectures available yet</p>
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section>
-              <h2 className="text-xl font-bold text-foreground mb-4">My Generated Lectures</h2>
+            {(lectureFilter === 'all' || lectureFilter === 'private') && <section>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground">My Private Avatar Lectures</h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                  <Lock className="h-3.5 w-3.5" />Only you
+                </span>
+              </div>
               {myLectures.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {myLectures.map((lecture) => (
@@ -885,6 +909,7 @@ export default function StudentCourse() {
                       courseCode={course.course_number}
                       instructorName="You"
                       status={lecture.status}
+                      isPrivateLecture={true}
                       onClick={() => router.push(`/student/course/${courseId}/my/lecture/${lecture.id}`)}
                     />
                   ))}
@@ -894,14 +919,14 @@ export default function StudentCourse() {
                   <Video className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                   <p className="text-muted-foreground mb-4">You haven&apos;t generated any lectures yet</p>
                   <button
-                    onClick={() => setActiveTab('chat')}
+                    onClick={() => router.push(`/student/create-lecture?courseId=${courseId}`)}
                     className="bg-brand-maroon hover:bg-brand-maroon-hover text-white px-6 py-2 rounded-lg transition-colors"
                   >
                     Generate Your First Lecture
                   </button>
                 </div>
               )}
-            </section>
+            </section>}
           </div>
         )}
 
@@ -1188,22 +1213,22 @@ export default function StudentCourse() {
                   onChange={(e) => setVideoLength(Number(e.target.value))}
                   className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent bg-background text-foreground"
                 >
+                  <option value={1}>1 minute</option>
+                  <option value={2}>2 minutes</option>
+                  <option value={3}>3 minutes</option>
+                  <option value={4}>4 minutes</option>
                   <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={20}>20 minutes</option>
-                  <option value={30}>30 minutes</option>
                 </select>
               </div>
 
               <div className="flex gap-4 pt-4">
                 <button
                   onClick={handleGenerateLecture}
-                  disabled={!prompt.trim() || generating}
+                  disabled={!prompt.trim()}
                   className="flex-1 bg-brand-maroon hover:bg-brand-maroon-hover text-white font-bold py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Video className="w-5 h-5" />
-                  {generating ? 'Generating...' : 'Generate Video Lecture'}
+                  Open Private Avatar Studio
                 </button>
               </div>
             </div>

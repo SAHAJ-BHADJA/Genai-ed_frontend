@@ -17,6 +17,7 @@ import EducatorQuizCard from '@/components/EducatorQuizCard';
 import StudentManagementTable, { StudentPerformanceRow } from '@/components/StudentManagementTable';
 import { ArrowLeft, Video, Plus, Users, BookOpen, FileText, ListChecks, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 
 type Lecture = {
   id: string;
@@ -193,10 +194,7 @@ export default function CourseLectures() {
 
       const lecturesWithArtifacts: LectureWithArtifacts[] = await Promise.all(
         lecturesData.map(async (lecture) => {
-          const { data: artifacts } = await supabase
-            .from('lecture_artifacts')
-            .select('id, artifact_type, file_url')
-            .eq('lecture_id', lecture.id);
+          const artifacts = await fetchLectureArtifacts(lecture.id);
 
           return {
             ...lecture,

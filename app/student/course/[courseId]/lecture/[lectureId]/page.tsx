@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import StudentLayout from '@/components/StudentLayout';
 import { supabase, Profile } from '@/lib/supabase';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 import {
   ArrowLeft,
   MessageSquare,
@@ -146,14 +147,10 @@ export default function StudentLectureViewer() {
       setCourse(courseData);
     }
 
-    const { data: artifactsData } = await supabase
-      .from('lecture_artifacts')
-      .select('*')
-      .eq('lecture_id', lectureId)
-      .order('created_at', { ascending: false });
+    const artifactsData = await fetchLectureArtifacts(lectureId);
 
     if (artifactsData) {
-      setArtifacts(artifactsData);
+      setArtifacts(artifactsData as Artifact[]);
 
       if (artifactsData.some(a => a.artifact_type === 'video_avatar_mp4' || a.artifact_type === 'video_static_mp4' || a.artifact_type === 'video_avatar')) {
         setActiveTab('video');

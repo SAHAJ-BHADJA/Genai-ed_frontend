@@ -1,83 +1,93 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, FileText, Lock, Music, Presentation, RefreshCw, Video } from 'lucide-react';
 import StudentLayout from '@/components/StudentLayout';
-import { supabase, Profile } from '@/lib/supabase';
+import { getBackendBase } from '@/lib/backend';
 import { hasProfileRole } from '@/lib/profileRoles';
-import {
-  ArrowLeft,
-  MessageSquare,
-  Send,
-  CheckSquare,
-  Clock,
-  User
-} from 'lucide-react';
+import { Profile, supabase } from '@/lib/supabase';
 
-interface StudentLecture {
+type PrivateLecture = {
   id: string;
   title: string;
-  prompt: string;
-  video_url: string | null;
-  video_length: number;
   course_id: string;
   status: string;
-  transcript: string | null;
+  video_length: number | null;
+  script_prompt: string | null;
+  script_text: string | null;
   created_at: string;
-}
+};
 
-interface Course {
+type Course = {
   course_number: string;
   title: string;
-  instructor_name: string;
-}
+};
 
-interface Message {
+type PrivateArtifact = {
   id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
+  artifactType: 'video_avatar' | 'video_avatar_mp4' | 'audio' | 'audio_mp3' | 'pptx' | 'ppt';
+  url: string;
+  expiresIn: number;
+  createdAt: string;
+};
 
-export default function StudentMyLectureViewer() {
+type MediaTab = 'video' | 'audio' | 'presentation';
+
+const backendBase = getBackendBase().replace(/\/$/, '');
+
+export default function StudentPrivateLectureViewer() {
   const router = useRouter();
   const params = useParams();
   const courseId = params.courseId as string;
   const lectureId = params.lectureId as string;
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [lecture, setLecture] = useState<StudentLecture | null>(null);
+  const [lecture, setLecture] = useState<PrivateLecture | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [prompt, setPrompt] = useState('');
-  const [sending, setSending] = useState(false);
+  const [artifacts, setArtifacts] = useState<PrivateArtifact[]>([]);
+  const [activeTab, setActiveTab] = useState<MediaTab>('video');
+  const [error, setError] = useState<string | null>(null);
 
-  const [contextSources, setContextSources] = useState({
-    syllabus: true,
-    courseMaterials: true,
-    generatedTranscript: true,
-    studentUploads: true
-  });
+  const loadPrivateArtifacts = useCallback(async (accessToken: string) => {
+    const response = await fetch(`${backendBase}/api/lectures/${lectureId}/private-artifacts`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
 
-  useEffect(() => {
-    loadLectureData();
-    const interval = setInterval(() => {
-      if (lecture?.status === 'generating') {
-        loadLectureData();
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 404) {
+        throw new Error('This private lecture is not available to your account.');
       }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [lectureId]);
-
-  const loadLectureData = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      router.push('/student/login');
-      return;
+      throw new Error(await response.text());
     }
 
-    if (!profile) {
+    const payload = await response.json();
+    const nextArtifacts = (payload.artifacts || []) as PrivateArtifact[];
+    setArtifacts(nextArtifacts);
+
+    if (nextArtifacts.some((artifact) => artifact.artifactType === 'video_avatar' || artifact.artifactType === 'video_avatar_mp4')) {
+      setActiveTab('video');
+    } else if (nextArtifacts.some((artifact) => artifact.artifactType === 'audio' || artifact.artifactType === 'audio_mp3')) {
+      setActiveTab('audio');
+    } else if (nextArtifacts.some((artifact) => artifact.artifactType === 'pptx' || artifact.artifactType === 'ppt')) {
+      setActiveTab('presentation');
+    }
+  }, [lectureId]);
+
+  const loadLecture = useCallback(async (showRefresh = false) => {
+    if (showRefresh) setRefreshing(true);
+    setError(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/student/login');
+        return;
+      }
+
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -88,328 +98,199 @@ export default function StudentMyLectureViewer() {
         router.push('/');
         return;
       }
-
       setProfile(profileData);
+
+      const { data: lectureData, error: lectureError } = await supabase
+        .from('lectures')
+        .select('id,title,course_id,status,video_length,script_prompt,script_text,created_at')
+        .eq('id', lectureId)
+        .eq('course_id', courseId)
+        .eq('creator_role', 'student')
+        .eq('creator_user_id', user.id)
+        .maybeSingle();
+
+      if (lectureError) throw lectureError;
+      if (!lectureData) {
+        setError('This private lecture is not available to your account.');
+        return;
+      }
+      setLecture(lectureData as PrivateLecture);
+
+      const { data: courseData } = await supabase
+        .from('courses')
+        .select('course_number,title')
+        .eq('id', courseId)
+        .maybeSingle();
+      setCourse(courseData as Course | null);
+
+      if (lectureData.status === 'completed' || lectureData.status === 'generated') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Session expired. Please log in again.');
+        await loadPrivateArtifacts(session.access_token);
+      } else {
+        setArtifacts([]);
+      }
+    } catch (loadError) {
+      console.error('Error loading private lecture:', loadError);
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load this private lecture.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [courseId, lectureId, loadPrivateArtifacts, router]);
 
-    const { data: lectureData } = await supabase
-      .from('student_lectures')
-      .select('*')
-      .eq('id', lectureId)
-      .eq('student_id', user.id)
-      .maybeSingle();
+  useEffect(() => {
+    void loadLecture();
+  }, [loadLecture]);
 
-    if (!lectureData) {
-      router.push('/student/dashboard');
-      return;
-    }
+  useEffect(() => {
+    if (lecture?.status !== 'generating') return;
+    const interval = window.setInterval(() => void loadLecture(), 5000);
+    return () => window.clearInterval(interval);
+  }, [lecture?.status, loadLecture]);
 
-    setLecture(lectureData);
+  useEffect(() => {
+    if (!artifacts.length) return;
+    const interval = window.setInterval(() => void loadLecture(), 4 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [artifacts.length, loadLecture]);
 
-    const { data: courseData } = await supabase
-      .from('courses')
-      .select('course_number, title, instructor_name')
-      .eq('id', lectureData.course_id)
-      .maybeSingle();
-
-    if (courseData) {
-      setCourse(courseData);
-    }
-
-    const { data: viewData } = await supabase
-      .from('student_lecture_views')
-      .select('id')
-      .eq('student_id', user.id)
-      .eq('student_lecture_id', lectureId)
-      .maybeSingle();
-
-    if (!viewData) {
-      await supabase
-        .from('student_lecture_views')
-        .insert({
-          student_id: user.id,
-          student_lecture_id: lectureId,
-          duration_watched: 0,
-          completed: false
-        });
-    }
-
-    setLoading(false);
-  };
-
-  const handleSendMessage = async () => {
-    if (!prompt.trim() || sending) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: prompt
-    };
-
-    setMessages([...messages, userMessage]);
-    setPrompt('');
-    setSending(true);
-
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Based on your generated lecture and the context you've provided, here's my response to "${userMessage.content}"...`
-      };
-      setMessages(prev => [...prev, assistantMessage]);
-      setSending(false);
-    }, 1500);
-  };
-
-  const formatTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInMs = now.getTime() - date.getTime();
-    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-
-    if (diffInMinutes < 1) return 'Just now';
-    if (diffInMinutes < 60) return `${diffInMinutes} min ago`;
-
-    const diffInHours = Math.floor(diffInMinutes / 60);
-    if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
-
-    const diffInDays = Math.floor(diffInHours / 24);
-    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
-  };
+  const videoArtifact = useMemo(
+    () => artifacts.find((artifact) => artifact.artifactType === 'video_avatar' || artifact.artifactType === 'video_avatar_mp4'),
+    [artifacts],
+  );
+  const audioArtifact = useMemo(
+    () => artifacts.find((artifact) => artifact.artifactType === 'audio' || artifact.artifactType === 'audio_mp3'),
+    [artifacts],
+  );
+  const presentationArtifact = useMemo(
+    () => artifacts.find((artifact) => artifact.artifactType === 'pptx' || artifact.artifactType === 'ppt'),
+    [artifacts],
+  );
 
   if (loading || !profile) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-brand-maroon border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading lecture...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-brand-maroon border-t-transparent" />
       </div>
-    );
-  }
-
-  if (!lecture || !course) {
-    return (
-      <StudentLayout profile={profile}>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center">
-            <p className="text-gray-600">Lecture not found</p>
-          </div>
-        </div>
-      </StudentLayout>
     );
   }
 
   return (
     <StudentLayout profile={profile}>
-      <div className="h-full flex flex-col">
-        <div className="bg-card border-b border-border px-6 py-4">
+      <div className="mx-auto max-w-6xl space-y-6 p-6 lg:p-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <button
+            type="button"
             onClick={() => router.push(`/student/course/${courseId}`)}
-            className="flex items-center gap-2 text-brand-maroon hover:text-brand-maroon-hover transition-colors mb-3"
+            className="flex items-center gap-2 text-brand-maroon hover:text-brand-maroon-hover"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Course
+            <ArrowLeft className="h-4 w-4" />
+            Back to course
           </button>
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground mb-1">{lecture.title}</h1>
-              <p className="text-muted-foreground">
-                {course.course_number} • Generated by you • {formatTimeAgo(lecture.created_at)}
-              </p>
-            </div>
-            {lecture.status === 'generating' && (
-              <span className="px-3 py-1 bg-brand-yellow text-brand-maroon text-sm font-medium rounded-full">
-                Generating...
-              </span>
-            )}
-            {lecture.status === 'completed' && (
-              <span className="px-3 py-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-sm font-medium rounded-full">
-                Ready
-              </span>
-            )}
-            {lecture.status === 'failed' && (
-              <span className="px-3 py-1 bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 text-sm font-medium rounded-full">
-                Failed
-              </span>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => void loadLecture(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
 
-        <div className="flex-1 overflow-hidden">
-          <div className="h-full grid grid-cols-1 lg:grid-cols-2 gap-0">
-            <div className="bg-background border-r border-border p-6 overflow-y-auto">
-              <div className="max-w-3xl mx-auto space-y-6">
-                {lecture.status === 'generating' ? (
-                  <div className="aspect-video bg-card border border-border rounded-xl flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-16 h-16 border-4 border-brand-maroon border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                      <p className="text-foreground font-medium mb-2">Generating your lecture video...</p>
-                      <p className="text-sm text-muted-foreground">This may take a few minutes</p>
-                    </div>
-                  </div>
-                ) : lecture.status === 'failed' ? (
-                  <div className="aspect-video bg-card border border-border rounded-xl flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-red-600 dark:text-red-400 font-medium mb-2">Generation failed</p>
-                      <p className="text-sm text-muted-foreground">Please try again or contact support</p>
-                    </div>
-                  </div>
-                ) : lecture.video_url ? (
-                  <div className="aspect-video bg-black rounded-xl overflow-hidden">
-                    <video
-                      controls
-                      className="w-full h-full"
-                      src={lecture.video_url}
-                    >
-                      Your browser does not support the video tag.
-                    </video>
-                  </div>
-                ) : (
-                  <div className="aspect-video bg-card border border-border rounded-xl flex items-center justify-center">
-                    <p className="text-muted-foreground">Video will appear here when ready</p>
-                  </div>
-                )}
+        {error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">{error}</div>
+        ) : lecture ? (
+          <>
+            <header className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+                  <Lock className="h-3.5 w-3.5" />
+                  Private · Only you
+                </span>
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold capitalize text-gray-700">
+                  {lecture.status}
+                </span>
+              </div>
+              <h1 className="text-3xl font-bold text-foreground">{lecture.title}</h1>
+              <p className="mt-2 text-muted-foreground">
+                {course?.course_number || 'Course'} · {lecture.video_length || 1} minute lecture
+              </p>
+              <p className="mt-3 flex items-center gap-2 text-sm text-blue-800">
+                <Lock className="h-4 w-4" />
+                Classmates and educators cannot access this lecture or its files.
+              </p>
+            </header>
 
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <div className="flex items-center gap-4 mb-4 pb-4 border-b border-border">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-sm">{lecture.video_length} min</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <User className="w-4 h-4" />
-                      <span className="text-sm">You</span>
-                    </div>
-                  </div>
-
-                  <h3 className="font-bold text-foreground mb-2">Your prompt</h3>
-                  <p className="text-muted-foreground">{lecture.prompt}</p>
-
-                  {lecture.transcript && (
-                    <div className="mt-4 pt-4 border-t border-border">
-                      <h3 className="font-bold text-foreground mb-2">Transcript</h3>
-                      <div className="text-sm text-muted-foreground max-h-60 overflow-y-auto">
-                        {lecture.transcript}
-                      </div>
-                    </div>
+            {lecture.status === 'generating' ? (
+              <div className="rounded-2xl border border-border bg-card p-12 text-center">
+                <div className="mx-auto mb-4 h-14 w-14 animate-spin rounded-full border-4 border-brand-maroon border-t-transparent" />
+                <h2 className="text-lg font-semibold">Generating your private lecture</h2>
+                <p className="mt-2 text-sm text-muted-foreground">Avatar video generation can take several minutes.</p>
+              </div>
+            ) : lecture.status === 'failed' ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-red-800">
+                Generation failed. Return to Avatar Lecture Studio to review the configuration and try again.
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+                <div className="mb-6 flex flex-wrap gap-2">
+                  {videoArtifact && (
+                    <button type="button" onClick={() => setActiveTab('video')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === 'video' ? 'bg-brand-maroon text-white' : 'bg-muted text-foreground'}`}>
+                      <Video className="mr-2 inline h-4 w-4" />Video
+                    </button>
+                  )}
+                  {audioArtifact && (
+                    <button type="button" onClick={() => setActiveTab('audio')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === 'audio' ? 'bg-brand-maroon text-white' : 'bg-muted text-foreground'}`}>
+                      <Music className="mr-2 inline h-4 w-4" />Audio
+                    </button>
+                  )}
+                  {presentationArtifact && (
+                    <button type="button" onClick={() => setActiveTab('presentation')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === 'presentation' ? 'bg-brand-maroon text-white' : 'bg-muted text-foreground'}`}>
+                      <Presentation className="mr-2 inline h-4 w-4" />Slides
+                    </button>
                   )}
                 </div>
-              </div>
-            </div>
 
-            <div className="bg-card flex flex-col h-full">
-              <div className="p-6 border-b border-border">
-                <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5" />
-                  Chat with AI
-                </h2>
-
-                <div className="space-y-3 mb-4">
-                  <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
-                    <CheckSquare className="w-4 h-4" />
-                    Context Sources
-                  </h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={contextSources.syllabus}
-                        onChange={(e) => setContextSources({ ...contextSources, syllabus: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-maroon focus:ring-brand-maroon"
-                      />
-                      <span className="text-foreground">Syllabus</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={contextSources.courseMaterials}
-                        onChange={(e) => setContextSources({ ...contextSources, courseMaterials: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-maroon focus:ring-brand-maroon"
-                      />
-                      <span className="text-foreground">Materials</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={contextSources.generatedTranscript}
-                        onChange={(e) => setContextSources({ ...contextSources, generatedTranscript: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-maroon focus:ring-brand-maroon"
-                      />
-                      <span className="text-foreground">Transcript</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={contextSources.studentUploads}
-                        onChange={(e) => setContextSources({ ...contextSources, studentUploads: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-maroon focus:ring-brand-maroon"
-                      />
-                      <span className="text-foreground">My Uploads</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {messages.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-12">
-                    <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>Ask questions about this lecture</p>
-                  </div>
-                ) : (
-                  messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] rounded-xl px-4 py-3 ${
-                          message.role === 'user'
-                            ? 'bg-brand-maroon text-white'
-                            : 'bg-accent text-foreground'
-                        }`}
-                      >
-                        <p className="text-sm">{message.content}</p>
-                      </div>
-                    </div>
-                  ))
+                {activeTab === 'video' && videoArtifact && (
+                  <video key={videoArtifact.url} controls className="aspect-video w-full rounded-xl bg-black" src={videoArtifact.url}>
+                    Your browser does not support the video tag.
+                  </video>
                 )}
-                {sending && (
-                  <div className="flex justify-start">
-                    <div className="bg-accent rounded-xl px-4 py-3">
-                      <div className="flex gap-1">
-                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                      </div>
-                    </div>
+                {activeTab === 'audio' && audioArtifact && (
+                  <div className="rounded-xl bg-muted p-8">
+                    <audio key={audioArtifact.url} controls className="w-full" src={audioArtifact.url} />
+                  </div>
+                )}
+                {activeTab === 'presentation' && presentationArtifact && (
+                  <div className="rounded-xl border border-border p-10 text-center">
+                    <Presentation className="mx-auto mb-4 h-14 w-14 text-brand-maroon" />
+                    <a href={presentationArtifact.url} target="_blank" rel="noreferrer" className="font-semibold text-brand-maroon hover:underline">
+                      Open private presentation
+                    </a>
+                  </div>
+                )}
+
+                {!artifacts.length && (
+                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-muted-foreground">
+                    No generated files are available yet.
                   </div>
                 )}
               </div>
+            )}
 
-              <div className="p-6 border-t border-border">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Ask a question about this lecture..."
-                    className="flex-1 px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent bg-background text-foreground"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!prompt.trim() || sending}
-                    className="bg-brand-maroon hover:bg-brand-maroon-hover text-white p-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+            <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
+                <FileText className="h-5 w-5" />
+                Lecture prompt
+              </h2>
+              <p className="whitespace-pre-wrap text-muted-foreground">
+                {lecture.script_prompt || 'A directly provided script was used for this lecture.'}
+              </p>
+            </section>
+          </>
+        ) : null}
       </div>
     </StudentLayout>
   );

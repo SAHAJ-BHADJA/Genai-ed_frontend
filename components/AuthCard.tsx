@@ -229,11 +229,11 @@ export default function AuthCard({ role }: AuthCardProps) {
             <div className="mt-8 pt-6 border-t border-gray-200">
               <p className="text-xs text-center text-gray-500">
                 By continuing, you agree to GenAI&apos;s{' '}
-                <a href="#" className="text-brand-maroon hover:underline">
+                <a href="#" className="text-brand-maroon underline underline-offset-2">
                   Terms of Service
                 </a>{' '}
                 and{' '}
-                <a href="#" className="text-brand-maroon hover:underline">
+                <a href="#" className="text-brand-maroon underline underline-offset-2">
                   Privacy Policy
                 </a>
               </p>

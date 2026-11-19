@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Profile, supabase } from '@/lib/supabase';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 import { Clock, Download, FileText, Loader2, Music, Presentation, User, Video } from 'lucide-react';
 
 interface Lecture {
@@ -191,11 +192,7 @@ export default function EmbeddedLectureViewer({
         setCourse(courseData);
       }
 
-      const { data: artifactsData } = await supabase
-        .from('lecture_artifacts')
-        .select('*')
-        .eq('lecture_id', lectureId)
-        .order('created_at', { ascending: false });
+      const artifactsData = await fetchLectureArtifacts(lectureId);
 
       if (artifactsData) {
         const artifactChecks = await Promise.all(
@@ -212,7 +209,7 @@ export default function EmbeddedLectureViewer({
           .filter((entry) => !entry.valid)
           .map((entry) => entry.artifact.artifact_type);
 
-        setArtifacts(validArtifacts);
+        setArtifacts(validArtifacts as Artifact[]);
 
         if (invalidArtifacts.length > 0) {
           setAssetNotice(

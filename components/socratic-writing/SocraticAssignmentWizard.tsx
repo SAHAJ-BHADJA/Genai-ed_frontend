@@ -54,6 +54,7 @@ import {
 } from '@/lib/socraticWritingApi';
 import { sanitizeFileName } from '@/lib/assignments';
 import { Course, Profile, supabase } from '@/lib/supabase';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 
 const WIZARD_STEPS = [
   'Select Course',
@@ -568,17 +569,17 @@ export default function SocraticAssignmentWizard() {
 
       const lectureIds = (lectureResult.data || []).map((row) => row.lecture_id).filter(Boolean);
       if (lectureIds.length) {
-        const { data: artifactRows, error: artifactError } = await supabase
-          .from('lecture_artifacts')
-          .select('id,lecture_id,artifact_type,artifact_url,file_url,storage_path')
-          .in('lecture_id', lectureIds);
-        if (artifactError) throw artifactError;
+        const artifactRows = (await Promise.all(
+          lectureIds.map(async (lectureId) => (
+            await fetchLectureArtifacts(lectureId)
+          ).map((artifact) => ({ ...artifact, lecture_id: lectureId }))),
+        )).flat();
         const lectureTitles = new Map((lectureResult.data || []).map((row: any) => [
           row.lecture_id,
           row.lectures?.title || 'Lecture',
         ]));
         (artifactRows || []).forEach((artifact) => {
-          const url = artifact.file_url || artifact.artifact_url || null;
+          const url = artifact.file_url || null;
           if (!url || !/\.pdf(?:$|\?)/i.test(url)) return;
           addReading({
             id: `lecture-artifact:${artifact.id}`,

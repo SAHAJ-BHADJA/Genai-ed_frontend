@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader as Loader2 } from 'lucide-react';
+import { Loader as Loader2, Lock } from 'lucide-react';
 
 interface LectureCardProps {
   title: string;
@@ -9,6 +9,7 @@ interface LectureCardProps {
   isNew?: boolean;
   status?: string;
   isEducatorLecture?: boolean;
+  isPrivateLecture?: boolean;
   onClick: () => void;
 }
 
@@ -19,6 +20,7 @@ export default function LectureCard({
   isNew = false,
   status,
   isEducatorLecture = false,
+  isPrivateLecture = false,
   onClick
 }: LectureCardProps) {
   const getStatusBadge = () => {
@@ -27,6 +29,14 @@ export default function LectureCard({
         <span className="px-2 py-1 bg-brand-yellow text-brand-maroon text-xs font-bold rounded-full flex items-center gap-1">
           <Loader2 className="w-3 h-3 animate-spin" />
           Generating
+        </span>
+      );
+    }
+    if (isPrivateLecture) {
+      return (
+        <span className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-800">
+          <Lock className="h-3 w-3" />
+          Private
         </span>
       );
     }

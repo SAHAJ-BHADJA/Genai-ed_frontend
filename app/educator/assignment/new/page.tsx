@@ -8,6 +8,7 @@ import EducatorLayout from '@/components/EducatorLayout';
 import SocraticStudioConfigurator from '@/components/socratic-writing/SocraticStudioConfigurator';
 import { supabase, Course, Profile } from '@/lib/supabase';
 import { uploadFile } from '@/lib/fileUpload';
+import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 import {
   getAssignmentSystemMissingMessage,
   isAssignmentSystemMissingError,
@@ -645,14 +646,13 @@ export default function NewAssignmentPage() {
       if (uploadError) throw uploadError;
 
       const lectureIds = (lectureRows || []).map((row: any) => row.lecture_id).filter(Boolean);
-      const { data: lectureArtifacts, error: lectureArtifactsError } = lectureIds.length
-        ? await supabase
-            .from('lecture_artifacts')
-            .select('id, lecture_id, artifact_type, artifact_url, file_url, storage_path')
-            .in('lecture_id', lectureIds)
-        : { data: [], error: null as any };
-
-      if (lectureArtifactsError) throw lectureArtifactsError;
+      const lectureArtifacts = lectureIds.length
+        ? (await Promise.all(
+            lectureIds.map(async (lectureId: string) => (
+              await fetchLectureArtifacts(lectureId)
+            ).map((artifact) => ({ ...artifact, lecture_id: lectureId }))),
+          )).flat()
+        : [];
 
       const avatarLectureOptions: ExistingLinkedOption[] = (lectureRows || []).map((row: any) => ({
         id: row.lecture_id,
@@ -673,7 +673,7 @@ export default function NewAssignmentPage() {
       (lectureRows || []).forEach((row: any) => {
         const lectureTitle = row.lectures?.title || 'Lecture';
         (artifactsByLectureId[row.lecture_id] || []).forEach((artifact: any) => {
-          const fileUrl = artifact.file_url || artifact.artifact_url || null;
+          const fileUrl = artifact.file_url || null;
           if (!fileUrl || !String(fileUrl).toLowerCase().includes('.pdf')) return;
           appendReading({
             id: `lecture-artifact:${artifact.id}`,

@@ -96,8 +96,8 @@ export default function EducatorLoginPage() {
           <div className="p-8">
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'login' | 'signup')}>
               <TabsList className="grid w-full grid-cols-2 mb-8">
-                <TabsTrigger value="login">Login</TabsTrigger>
-                <TabsTrigger value="signup">Sign up</TabsTrigger>
+                <TabsTrigger className="text-gray-700 data-[state=active]:text-gray-950" value="login">Login</TabsTrigger>
+                <TabsTrigger className="text-gray-700 data-[state=active]:text-gray-950" value="signup">Sign up</TabsTrigger>
               </TabsList>
 
               <TabsContent value="login">
@@ -216,11 +216,11 @@ export default function EducatorLoginPage() {
             <div className="mt-8 pt-6 border-t border-gray-200">
               <p className="text-xs text-center text-gray-500">
                 By continuing, you agree to GenAI&apos;s{' '}
-                <a href="#" className="text-brand-maroon hover:underline">
+                <a href="#" className="text-brand-maroon underline underline-offset-2">
                   Terms of Service
                 </a>{' '}
                 and{' '}
-                <a href="#" className="text-brand-maroon hover:underline">
+                <a href="#" className="text-brand-maroon underline underline-offset-2">
                   Privacy Policy
                 </a>
               </p>

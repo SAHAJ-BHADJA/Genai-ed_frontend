@@ -4,11 +4,12 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase, Profile, Course } from '@/lib/supabase';
 import StudentLayout from '@/components/StudentLayout';
-import { ArrowLeft, Upload, File, Check, ChevronDown, ChevronUp, Info, Video, Mic, FileText, Sparkles, Download, Eye, Play, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Upload, File, Check, ChevronDown, ChevronUp, Info, Video, Mic, FileText, Sparkles, CheckCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getBackendBase } from '@/lib/backend';
 import { validateFileSize } from '@/lib/fileUpload';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { AvatarName, AvatarVoiceMap } from '@/lib/avatarVoiceMap';
 
 type MaterialWithType = {
   url: string;
@@ -19,7 +20,21 @@ type MaterialWithType = {
   courseCode?: string;
 };
 
-type AvatarType = 'professional_male' | 'professional_female' | 'casual_male' | 'casual_female';
+type AvatarType = AvatarName;
+
+type PrivateArtifact = {
+  id: string;
+  artifactType: 'video_avatar' | 'video_avatar_mp4' | 'audio' | 'audio_mp3' | 'pptx' | 'ppt';
+  url: string;
+  expiresIn: number;
+  createdAt: string;
+};
+
+type GenerationStatus = {
+  state: 'running' | 'succeeded' | 'failed';
+  complete: boolean;
+  errors?: Array<{ job_type?: string; message?: string }>;
+};
 
 const BACKEND_URL = getBackendBase().replace(/\/$/, '');
 
@@ -27,6 +42,9 @@ export default function CreateLecture() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const lectureId = searchParams.get('lectureId');
+  const requestedCourseId = searchParams.get('courseId');
+  const requestedPrompt = searchParams.get('prompt');
+  const requestedVideoLength = Number(searchParams.get('videoLength'));
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,8 +53,6 @@ export default function CreateLecture() {
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
-  const [addToPersonalLibrary, setAddToPersonalLibrary] = useState(false);
-  const [addToUSCLibrary, setAddToUSCLibrary] = useState(false);
 
   const [preloadedMaterials, setPreloadedMaterials] = useState<Array<{ url: string; name: string; courseTitle: string; courseCode: string; sourceCourseId: string }>>([]);
   const [selectedPreloadedMaterialUrls, setSelectedPreloadedMaterialUrls] = useState<string[]>([]);
@@ -48,18 +64,84 @@ export default function CreateLecture() {
   const [scriptMode, setScriptMode] = useState<'direct' | 'ai'>('ai');
   const [scriptDirect, setScriptDirect] = useState('');
   const [scriptFile, setScriptFile] = useState<File | null>(null);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [videoLength, setVideoLength] = useState(1);
+  const [aiPrompt, setAiPrompt] = useState(requestedPrompt || '');
+  const [videoLength, setVideoLength] = useState(
+    Number.isFinite(requestedVideoLength) && requestedVideoLength >= 1 && requestedVideoLength <= 5
+      ? requestedVideoLength
+      : 1,
+  );
   const [generatedScript, setGeneratedScript] = useState('');
   const [scriptGenerated, setScriptGenerated] = useState(false);
 
   const [selectedAvatar, setSelectedAvatar] = useState<AvatarType | null>(null);
+  const [selectedAvatarStyle, setSelectedAvatarStyle] = useState<string>('');
 
   const [contentGenerated, setContentGenerated] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [privateArtifacts, setPrivateArtifacts] = useState<PrivateArtifact[]>([]);
 
   const additionalFilesInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const isCreatingDraftRef = useRef(false);
+
+  const loadPrivateArtifacts = async (accessToken: string) => {
+    if (!lectureId) return [] as PrivateArtifact[];
+    const response = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/private-artifacts`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error('Generation completed, but the secure preview could not be loaded.');
+    }
+    const payload = await response.json();
+    const artifacts = (payload.artifacts || []) as PrivateArtifact[];
+    setPrivateArtifacts(artifacts);
+    return artifacts;
+  };
+
+  const waitForGeneration = async (accessToken: string): Promise<GenerationStatus> => {
+    if (!lectureId) throw new Error('No lecture draft found');
+    const deadline = Date.now() + 20 * 60 * 1000;
+    while (Date.now() < deadline) {
+      const response = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/generation-status`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(payload?.detail || 'Unable to check generation progress.');
+      }
+      const status = await response.json() as GenerationStatus;
+      if (status.complete && status.state === 'succeeded') return status;
+      if (status.state === 'failed') {
+        const details = (status.errors || [])
+          .map((error) => `${error.job_type || 'media'}: ${error.message || 'generation failed'}`)
+          .join('; ');
+        throw new Error(details || 'One or more requested files could not be generated.');
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+    throw new Error('Generation is still running. You can safely leave this page and return later.');
+  };
+
+  const resumeGeneration = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    setIsGenerating(true);
+    try {
+      await waitForGeneration(session.access_token);
+      await loadPrivateArtifacts(session.access_token);
+      setContentGenerated(true);
+      setCurrentStep(6);
+      setExpandedStep(6);
+      toast.success('Private avatar lecture generated successfully!');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to monitor private lecture generation');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   useEffect(() => {
     checkAuth();
@@ -73,6 +155,32 @@ export default function CreateLecture() {
       setSelectedPreloadedMaterialUrls([]);
     }
   }, [selectedCourseIds]);
+
+  useEffect(() => {
+    if (!lectureId || !contentGenerated || privateArtifacts.length > 0) return;
+    let cancelled = false;
+
+    const loadGeneratedPreview = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const response = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/private-artifacts`, {
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      });
+      if (!response.ok || cancelled) return;
+
+      const payload = await response.json();
+      if (!cancelled) {
+        setPrivateArtifacts((payload.artifacts || []) as PrivateArtifact[]);
+      }
+    };
+
+    void loadGeneratedPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [contentGenerated, lectureId, privateArtifacts.length]);
 
   const checkAuth = async () => {
     try {
@@ -112,6 +220,60 @@ export default function CreateLecture() {
 
         if (coursesData) {
           setCourses(coursesData);
+
+          if (lectureId) {
+            const { data: draftLecture } = await supabase
+              .from('lectures')
+              .select('title,course_id,selected_course_ids,content_style,script_mode,script_text,script_prompt,video_length,avatar_character,avatar_style,status')
+              .eq('id', lectureId)
+              .eq('creator_role', 'student')
+              .eq('creator_user_id', user.id)
+              .maybeSingle();
+
+            if (!draftLecture) {
+              toast.error('Private lecture not found');
+              router.push('/student/dashboard');
+              return;
+            }
+
+            const draftCourseIds = Array.isArray(draftLecture.selected_course_ids)
+              ? draftLecture.selected_course_ids
+              : draftLecture.course_id
+                ? [draftLecture.course_id]
+                : [];
+            setSelectedCourseIds(draftCourseIds);
+            setContentStyles(Array.isArray(draftLecture.content_style) ? draftLecture.content_style : []);
+            setScriptMode(draftLecture.script_mode === 'direct' ? 'direct' : 'ai');
+            setAiPrompt(draftLecture.script_prompt || '');
+            setVideoLength(draftLecture.video_length || 1);
+            setGeneratedScript(draftLecture.script_text || '');
+            setScriptGenerated(Boolean(draftLecture.script_text));
+            setSelectedAvatar((draftLecture.avatar_character as AvatarType) || null);
+            setSelectedAvatarStyle(draftLecture.avatar_style || '');
+            setContentGenerated(draftLecture.status === 'completed');
+            if (draftLecture.status === 'completed') {
+              setCurrentStep(7);
+              setExpandedStep(7);
+            } else if (draftLecture.status === 'generating') {
+              setCurrentStep(6);
+              setExpandedStep(6);
+              void resumeGeneration();
+            } else if (draftLecture.avatar_character && draftLecture.avatar_style) {
+              setCurrentStep(6);
+              setExpandedStep(6);
+            } else if (draftLecture.script_text) {
+              setCurrentStep(5);
+              setExpandedStep(5);
+            } else if (Array.isArray(draftLecture.content_style) && draftLecture.content_style.length > 0) {
+              setCurrentStep(4);
+              setExpandedStep(4);
+            } else {
+              setCurrentStep(2);
+              setExpandedStep(2);
+            }
+          } else if (requestedCourseId && courseIds.includes(requestedCourseId)) {
+            setSelectedCourseIds([requestedCourseId]);
+          }
         }
       }
     } catch (error) {
@@ -230,7 +392,7 @@ export default function CreateLecture() {
     setAdditionalFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleScriptFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScriptFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -239,25 +401,69 @@ export default function CreateLecture() {
       return;
     }
 
+    if (!file.name.toLowerCase().endsWith('.txt')) {
+      toast.error('Direct script upload currently supports TXT files');
+      return;
+    }
+
+    const text = await file.text();
+    if (!text.trim()) {
+      toast.error('The script file is empty');
+      return;
+    }
+
     setScriptFile(file);
+    setScriptDirect(text);
   };
 
   const handleContinueToMaterials = async () => {
-    if (selectedCourseIds.length === 0 && !addToPersonalLibrary && !addToUSCLibrary) {
-      toast.error('Please select at least one course or library');
+    if (selectedCourseIds.length === 0) {
+      toast.error('Please select at least one course');
       return;
     }
 
     if (!lectureId) {
+      if (isCreatingDraftRef.current) return;
+      isCreatingDraftRef.current = true;
+      setIsSavingDraft(true);
+      const releaseDraftLock = () => {
+        isCreatingDraftRef.current = false;
+        setIsSavingDraft(false);
+      };
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        releaseDraftLock();
         toast.error('You must be logged in');
         return;
       }
 
       const primaryCourseId = selectedCourseIds[0];
       if (!primaryCourseId) {
+        releaseDraftLock();
         toast.error('Please select at least one course');
+        return;
+      }
+
+      const { data: existingDrafts, error: existingDraftError } = await supabase
+        .from('lectures')
+        .select('id')
+        .eq('creator_role', 'student')
+        .eq('creator_user_id', user.id)
+        .eq('course_id', primaryCourseId)
+        .in('status', ['draft', 'failed'])
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (existingDraftError) {
+        releaseDraftLock();
+        console.error('Error checking existing private draft:', existingDraftError);
+        toast.error('Failed to check existing private drafts');
+        return;
+      }
+
+      if (existingDrafts && existingDrafts.length > 0) {
+        router.push(`/student/create-lecture?lectureId=${existingDrafts[0].id}&courseId=${primaryCourseId}`);
         return;
       }
 
@@ -269,29 +475,100 @@ export default function CreateLecture() {
           educator_id: user.id,
           course_id: primaryCourseId,
           selected_course_ids: selectedCourseIds,
-          title: 'Draft Lecture',
+          title: aiPrompt.trim().slice(0, 100) || 'Private Avatar Lecture',
+          content_style: [],
+          script_prompt: aiPrompt.trim() || null,
+          video_length: videoLength,
           status: 'draft'
         })
         .select()
         .single();
 
       if (error) {
+        releaseDraftLock();
         console.error('Error creating draft:', error);
         toast.error('Failed to save draft');
         return;
       }
 
       if (draftLecture) {
-        router.push(`/student/create-lecture?lectureId=${draftLecture.id}`);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          await supabase.from('lectures').delete().eq('id', draftLecture.id);
+          releaseDraftLock();
+          toast.error('Session expired. Please log in again.');
+          return;
+        }
+
+        const courseLinkResponse = await fetch(
+          `${BACKEND_URL}/api/lectures/${draftLecture.id}/private-course-links`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ courseIds: selectedCourseIds }),
+          },
+        );
+
+        if (!courseLinkResponse.ok) {
+          const courseLinkError = await courseLinkResponse.text();
+          await supabase.from('lectures').delete().eq('id', draftLecture.id);
+          releaseDraftLock();
+          console.error('Error linking private lecture to course:', courseLinkError);
+          toast.error('Failed to link the lecture to your course');
+          return;
+        }
+
+        router.push(`/student/create-lecture?lectureId=${draftLecture.id}&courseId=${primaryCourseId}`);
         return;
       }
+
+      releaseDraftLock();
     }
 
     setCurrentStep(2);
     setExpandedStep(2);
   };
 
-  const handleContinueToContentStyle = () => {
+  const handleContinueToContentStyle = async () => {
+    if (!lectureId) {
+      toast.error('No lecture draft found');
+      return;
+    }
+
+    const selectedCourseMaterials = allMaterials.filter((material) => material.sourceCourseId);
+    const { error: deleteError } = await supabase
+      .from('lecture_materials')
+      .delete()
+      .eq('lecture_id', lectureId);
+
+    if (deleteError) {
+      console.error('Error resetting lecture materials:', deleteError);
+      toast.error('Failed to save selected materials');
+      return;
+    }
+
+    if (selectedCourseMaterials.length > 0) {
+      const { error: materialError } = await supabase
+        .from('lecture_materials')
+        .insert(selectedCourseMaterials.map((material) => ({
+          lecture_id: lectureId,
+          material_url: material.url,
+          material_name: material.name,
+          material_type: material.type,
+          source_type: 'course_preloaded',
+          source_course_id: material.sourceCourseId,
+        })));
+
+      if (materialError) {
+        console.error('Error saving lecture materials:', materialError);
+        toast.error('Failed to save selected materials');
+        return;
+      }
+    }
+
     setCurrentStep(3);
     setExpandedStep(3);
   };
@@ -310,9 +587,26 @@ export default function CreateLecture() {
     );
   };
 
-  const handleContinueToScriptPrompt = () => {
+  const handleContinueToScriptPrompt = async () => {
     if (contentStyles.length === 0) {
       toast.error('Please select at least one content style');
+      return;
+    }
+
+    if (!lectureId) {
+      toast.error('No lecture draft found');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('lectures')
+      .update({ content_style: contentStyles })
+      .eq('id', lectureId)
+      .eq('creator_role', 'student');
+
+    if (error) {
+      console.error('Error saving content styles:', error);
+      toast.error('Failed to save content styles');
       return;
     }
 
@@ -340,29 +634,18 @@ export default function CreateLecture() {
         .update({
           script_mode: 'ai',
           script_prompt: aiPrompt,
-          video_length: videoLength
+          video_length: videoLength,
+          title: aiPrompt.trim().slice(0, 100) || 'Private Avatar Lecture',
+          content_style: contentStyles,
         })
         .eq('id', lectureId);
 
       if (updateError) throw updateError;
 
-      const { data: jobData, error: jobError } = await supabase
-        .from('lecture_jobs')
-        .insert({
-          lecture_id: lectureId,
-          job_type: 'scripts',
-          status: 'running',
-          progress: 10
-        })
-        .select()
-        .single();
-
-      if (jobError) throw jobError;
-
       const { data: { session } } = await supabase.auth.getSession();
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!session?.access_token) throw new Error('Session expired. Please log in again.');
 
-      const resp = await fetch(`${supabaseUrl}/functions/v1/generate-lecture-script/api/lectures/${lectureId}/generate-script`, {
+      const resp = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/generate-script`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -392,16 +675,6 @@ export default function CreateLecture() {
 
       if (scriptSaveError) throw scriptSaveError;
 
-      const { error: jobUpdateError } = await supabase
-        .from('lecture_jobs')
-        .update({
-          status: 'succeeded',
-          progress: 100
-        })
-        .eq('id', jobData.id);
-
-      if (jobUpdateError) throw jobUpdateError;
-
       setGeneratedScript(realScript);
       setScriptGenerated(true);
       toast.success('Script generated successfully!');
@@ -409,22 +682,12 @@ export default function CreateLecture() {
       console.error('Error generating script:', error);
       toast.error('Failed to generate script');
 
-      if (lectureId) {
-        await supabase
-          .from('lecture_jobs')
-          .update({
-            status: 'failed',
-            result: { error: error instanceof Error ? error.message : 'Unknown error' }
-          })
-          .eq('lecture_id', lectureId)
-          .eq('job_type', 'scripts');
-      }
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleContinueToAvatarSelection = () => {
+  const handleContinueToAvatarSelection = async () => {
     if (scriptMode === 'direct' && !scriptDirect && !scriptFile) {
       toast.error('Please enter a script or upload a script file');
       return;
@@ -435,13 +698,71 @@ export default function CreateLecture() {
       return;
     }
 
+    if (!lectureId) {
+      toast.error('No lecture draft found');
+      return;
+    }
+
+    let scriptText = generatedScript;
+    if (scriptMode === 'direct') {
+      const directText = scriptDirect.trim();
+      scriptText = `TITLE:\nPrivate Avatar Lecture\n\nVIDEO SCRIPT:\n${directText}\n\nAUDIO SCRIPT:\n${directText}\n\nPPT SCRIPT:\nSLIDE 1: Private Avatar Lecture\n- ${directText.slice(0, 300)}`;
+    }
+
+    const { error } = await supabase
+      .from('lectures')
+      .update({
+        script_mode: scriptMode,
+        script_text: scriptText,
+        content_style: contentStyles,
+        video_length: videoLength,
+        title: aiPrompt.trim().slice(0, 100) || 'Private Avatar Lecture',
+      })
+      .eq('id', lectureId)
+      .eq('creator_role', 'student');
+
+    if (error) {
+      console.error('Error saving private lecture script:', error);
+      toast.error('Failed to save the script');
+      return;
+    }
+
+    setGeneratedScript(scriptText);
+    setScriptGenerated(true);
     setCurrentStep(5);
     setExpandedStep(5);
   };
 
-  const handleContinueToGenerateContent = () => {
+  const handleContinueToGenerateContent = async () => {
     if (!selectedAvatar) {
       toast.error('Please select an avatar');
+      return;
+    }
+
+    if (!selectedAvatarStyle) {
+      toast.error('Please select an avatar style');
+      return;
+    }
+
+    if (!lectureId) {
+      toast.error('No lecture draft found');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('lectures')
+      .update({
+        avatar_character: selectedAvatar,
+        avatar_style: selectedAvatarStyle,
+        avatar_voice_id: AvatarVoiceMap[selectedAvatar].voiceId,
+        content_style: contentStyles,
+      })
+      .eq('id', lectureId)
+      .eq('creator_role', 'student');
+
+    if (error) {
+      console.error('Error saving avatar selection:', error);
+      toast.error('Failed to save avatar selection');
       return;
     }
 
@@ -450,14 +771,46 @@ export default function CreateLecture() {
   };
 
   const handleGenerateContent = async () => {
-    setIsGenerating(true);
-    toast.info('Generating content...');
+    if (!lectureId) {
+      toast.error('No lecture draft found');
+      return;
+    }
 
-    setTimeout(() => {
-      setIsGenerating(false);
+    setIsGenerating(true);
+    toast.info('Generating your private content. This may take several minutes...');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Session expired. Please log in again.');
+
+      const response = await fetch(`${BACKEND_URL}/api/lectures/${lectureId}/generate-content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(errorPayload?.detail || 'Private lecture generation failed. Please try again.');
+      }
+
+      await response.json();
+      toast.info('Generation queued. You may leave this page while it finishes.');
+      await waitForGeneration(session.access_token);
+      await loadPrivateArtifacts(session.access_token);
+
       setContentGenerated(true);
-      toast.success('Content generated successfully!');
-    }, 2000);
+      setCurrentStep(6);
+      setExpandedStep(6);
+      toast.success('Private avatar lecture generated successfully!');
+    } catch (error) {
+      console.error('Error generating private lecture:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to generate private lecture');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleGoToPublish = () => {
@@ -465,16 +818,14 @@ export default function CreateLecture() {
     setExpandedStep(7);
   };
 
-  const handleRegenerateScript = () => {
-    toast.info('Regenerating with changes...');
-  };
-
-  const handleRegenerateSlides = () => {
-    toast.info('Regenerating slides...');
-  };
-
   const handlePublishContent = () => {
-    toast.success('Content published successfully!');
+    if (!lectureId) return;
+    const courseId = selectedCourseIds[0] || requestedCourseId;
+    if (courseId) {
+      router.push(`/student/course/${courseId}/my/lecture/${lectureId}`);
+    } else {
+      router.push('/student/dashboard');
+    }
   };
 
   const getFileExtension = (filename: string) => {
@@ -491,25 +842,55 @@ export default function CreateLecture() {
   }
 
   const steps = [
-    { number: 1, title: 'Select Course or Library', subtitle: 'Choose where to publish this content' },
+    { number: 1, title: 'Select Course', subtitle: 'Choose the course context for your private lecture' },
     { number: 2, title: 'Select Materials', subtitle: 'Add any additional materials for the lecture' },
     { number: 3, title: 'Select Content Style', subtitle: 'Choose one or more content formats' },
     { number: 4, title: 'Script or Prompt Engineering', subtitle: 'Add your script or generate with AI' },
     { number: 5, title: 'Select Avatar', subtitle: 'Choose an AI presenter' },
     { number: 6, title: 'Generate Content', subtitle: 'Review and regenerate if needed' },
-    { number: 7, title: 'Publish Content', subtitle: 'Choose where to publish and download options' }
+    { number: 7, title: 'My Private Lecture', subtitle: 'View the result in your private library' }
   ];
 
   const avatarOptions = [
-    { id: 'professional_male', label: 'Professional Male', emoji: '👨‍💼' },
-    { id: 'professional_female', label: 'Professional Female', emoji: '👩‍💼' },
-    { id: 'casual_male', label: 'Casual Male', emoji: '🙋‍♂️' },
-    { id: 'casual_female', label: 'Casual Female', emoji: '🙋‍♀️' }
-  ];
+    { id: 'lisa' as AvatarType, label: 'Lisa', file: 'Lisa.png' },
+    { id: 'harry' as AvatarType, label: 'Harry', file: 'Harry.png' },
+  ].map((avatar) => {
+    const { data } = supabase.storage.from('media').getPublicUrl(`Images/${avatar.file}`);
+    return { ...avatar, imageUrl: data.publicUrl };
+  });
+
+  const characterStyles: Record<AvatarType, { styles: string[]; default: string }> = {
+    lisa: {
+      styles: ['casual-sitting', 'graceful-sitting', 'graceful-standing', 'technical-sitting', 'technical-standing'],
+      default: 'graceful-sitting',
+    },
+    lori: { styles: ['casual', 'graceful', 'formal'], default: 'graceful' },
+    meg: { styles: ['formal', 'casual', 'business'], default: 'formal' },
+    jeff: { styles: ['formal', 'business'], default: 'formal' },
+    max: { styles: ['business', 'casual', 'formal'], default: 'business' },
+    harry: { styles: ['business', 'casual', 'youthful'], default: 'business' },
+  };
+
+  const previewVideo = privateArtifacts.find(
+    (artifact) => artifact.artifactType === 'video_avatar' || artifact.artifactType === 'video_avatar_mp4',
+  );
+  const previewAudio = privateArtifacts.find(
+    (artifact) => artifact.artifactType === 'audio' || artifact.artifactType === 'audio_mp3',
+  );
+  const previewPresentation = privateArtifacts.find(
+    (artifact) => artifact.artifactType === 'pptx' || artifact.artifactType === 'ppt',
+  );
 
   return (
     <StudentLayout profile={profile}>
       <div className="max-w-5xl mx-auto space-y-8">
+        <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950">
+          <Lock className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Private to you</p>
+            <p className="text-sm">This lecture and its generated files are not shared with classmates or educators.</p>
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push('/student/dashboard')}
@@ -572,35 +953,17 @@ export default function CreateLecture() {
                       </div>
                     </div>
 
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-4">Add to Library</h4>
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={addToPersonalLibrary}
-                            onChange={(e) => setAddToPersonalLibrary(e.target.checked)}
-                            className="w-5 h-5 text-brand-maroon rounded focus:ring-brand-maroon"
-                          />
-                          <span className="font-medium text-gray-900">Personal Library</span>
-                        </label>
-                        <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={addToUSCLibrary}
-                            onChange={(e) => setAddToUSCLibrary(e.target.checked)}
-                            className="w-5 h-5 text-brand-maroon rounded focus:ring-brand-maroon"
-                          />
-                          <span className="font-medium text-gray-900">USC Library</span>
-                        </label>
-                      </div>
+                    <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-950">
+                      <Lock className="mt-0.5 h-5 w-5 shrink-0" />
+                      <p className="text-sm">The selected course provides context only. Your generated lecture will remain in your private library.</p>
                     </div>
 
                     <button
                       onClick={handleContinueToMaterials}
-                      className="bg-brand-maroon hover:bg-brand-maroon-hover text-white font-bold py-3 px-8 rounded-lg transition-colors"
+                      disabled={isSavingDraft}
+                      className="bg-brand-maroon hover:bg-brand-maroon-hover text-white font-bold py-3 px-8 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Continue to Materials Selection
+                      {isSavingDraft ? 'Saving Private Draft...' : 'Continue to Materials Selection'}
                     </button>
                   </div>
                 )}
@@ -839,7 +1202,7 @@ export default function CreateLecture() {
                           <input
                             ref={scriptFileInputRef}
                             type="file"
-                            accept=".txt,.doc,.docx,.pdf"
+                            accept=".txt,text/plain"
                             onChange={handleScriptFileSelect}
                             className="hidden"
                           />
@@ -849,7 +1212,7 @@ export default function CreateLecture() {
                           >
                             <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
                             <p className="text-gray-700 font-medium">Upload Script File</p>
-                            <p className="text-gray-500 text-sm">TXT, DOC, DOCX, PDF</p>
+                            <p className="text-gray-500 text-sm">TXT up to 5 MB</p>
                           </button>
 
                           {scriptFile && (
@@ -934,22 +1297,46 @@ export default function CreateLecture() {
 
                 {isExpanded && step.number === 5 && (
                   <div className="p-6 pt-0 space-y-6">
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       {avatarOptions.map((avatar) => (
                         <button
                           key={avatar.id}
-                          onClick={() => setSelectedAvatar(avatar.id as AvatarType)}
+                          onClick={() => {
+                            setSelectedAvatar(avatar.id);
+                            setSelectedAvatarStyle(characterStyles[avatar.id].default);
+                          }}
                           className={`p-6 border-2 rounded-xl text-center transition-all ${
                             selectedAvatar === avatar.id
                               ? 'border-brand-maroon bg-red-50'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <div className="text-5xl mb-3">{avatar.emoji}</div>
+                          <img
+                            src={avatar.imageUrl}
+                            alt={avatar.label}
+                            className="mx-auto mb-3 h-32 w-32 rounded-xl object-cover"
+                          />
                           <h4 className="font-bold text-gray-900 text-sm">{avatar.label}</h4>
                         </button>
                       ))}
                     </div>
+
+                    {selectedAvatar && (
+                      <div>
+                        <label className="mb-2 block font-semibold text-gray-900">Presentation style</label>
+                        <select
+                          value={selectedAvatarStyle}
+                          onChange={(event) => setSelectedAvatarStyle(event.target.value)}
+                          className="w-full rounded-lg border border-gray-300 p-3 focus:border-transparent focus:ring-2 focus:ring-brand-maroon"
+                        >
+                          {characterStyles[selectedAvatar].styles.map((style) => (
+                            <option key={style} value={style}>
+                              {style.replaceAll('-', ' ')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <button
                       onClick={handleContinueToGenerateContent}
@@ -1011,66 +1398,59 @@ export default function CreateLecture() {
                       </>
                     ) : (
                       <div className="space-y-6">
-                        {(contentStyles.includes('video') || contentStyles.includes('audio')) && (
+                        {previewVideo && (
                           <div>
-                            <h4 className="font-semibold text-gray-900 mb-4">Content Preview</h4>
-                            <div className="bg-gray-900 rounded-xl p-20 flex items-center justify-center aspect-video">
-                              <div className="text-center">
-                                <Play className="w-20 h-20 text-gray-400 mx-auto mb-4" />
-                                <p className="text-white text-lg">Video/Audio Preview</p>
-                              </div>
+                            <h4 className="mb-4 font-semibold text-gray-900">Avatar Video Preview</h4>
+                            <video
+                              key={previewVideo.url}
+                              controls
+                              className="aspect-video w-full rounded-xl bg-black"
+                              src={previewVideo.url}
+                            >
+                              Your browser does not support the video tag.
+                            </video>
+                          </div>
+                        )}
+
+                        {previewAudio && (
+                          <div>
+                            <h4 className="mb-4 font-semibold text-gray-900">Audio Preview</h4>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-6">
+                              <audio key={previewAudio.url} controls className="w-full" src={previewAudio.url} />
                             </div>
                           </div>
                         )}
 
-                        {contentStyles.includes('powerpoint') && (
+                        {previewPresentation && (
                           <div>
-                            <h4 className="font-semibold text-gray-900 mb-4">PowerPoint Preview</h4>
-                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-12 text-center">
-                              <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                              <p className="text-gray-700 font-medium">PowerPoint slides generated</p>
-                              <p className="text-gray-600 text-sm mt-1">12 slides created</p>
+                            <h4 className="mb-4 font-semibold text-gray-900">PowerPoint</h4>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-8 text-center">
+                              <FileText className="mx-auto mb-3 h-12 w-12 text-brand-maroon" />
+                              <a
+                                href={previewPresentation.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-semibold text-brand-maroon hover:underline"
+                              >
+                                Open generated presentation
+                              </a>
                             </div>
                           </div>
                         )}
 
-                        <div>
-                          <h4 className="font-semibold text-gray-900 mb-4">Edit Script & Regenerate</h4>
-                          <textarea
-                            value={generatedScript}
-                            onChange={(e) => setGeneratedScript(e.target.value)}
-                            className="w-full h-48 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-maroon focus:border-transparent bg-white"
-                          />
-                          <div className="mt-3 flex gap-3">
-                            <button
-                              onClick={handleRegenerateScript}
-                              className="bg-brand-yellow hover:bg-brand-yellow-hover text-black font-bold py-3 px-6 rounded-lg transition-colors flex items-center gap-2"
-                            >
-                              <Sparkles className="w-5 h-5" />
-                              Regenerate with Changes
-                            </button>
-                            <button
-                              onClick={handleGoToPublish}
-                              className="bg-brand-maroon hover:bg-brand-maroon-hover text-white font-bold py-3 px-6 rounded-lg transition-colors flex items-center gap-2"
-                            >
-                              <CheckCircle className="w-5 h-5" />
-                              Go to Publish
-                            </button>
-                          </div>
-                        </div>
-
-                        {contentStyles.includes('powerpoint') && (
-                          <div>
-                            <h4 className="font-semibold text-gray-900 mb-4">Edit Prompt & Regenerate</h4>
-                            <button
-                              onClick={handleRegenerateSlides}
-                              className="bg-brand-yellow hover:bg-brand-yellow-hover text-black font-bold py-3 px-6 rounded-lg transition-colors flex items-center gap-2"
-                            >
-                              <Sparkles className="w-5 h-5" />
-                              Regenerate Slides
-                            </button>
+                        {privateArtifacts.length === 0 && (
+                          <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 text-center text-blue-900">
+                            The lecture was generated successfully. Open the private lecture to refresh its secure preview links.
                           </div>
                         )}
+
+                        <button
+                          onClick={handleGoToPublish}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-maroon px-8 py-4 font-bold text-white transition-colors hover:bg-brand-maroon-hover"
+                        >
+                          <CheckCircle className="h-5 w-5" />
+                          Continue to My Private Lecture
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1078,71 +1458,28 @@ export default function CreateLecture() {
 
                 {isExpanded && step.number === 7 && (
                   <div className="p-6 pt-0 space-y-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-4">Publish To</h4>
-
-                      <div className="mb-4">
-                        <p className="text-sm text-gray-600 mb-3">Courses (Selected Earlier):</p>
-                        <div className="space-y-2">
-                          {courses.filter(c => selectedCourseIds.includes(c.id)).map(course => (
-                            <div key={course.id} className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-                              <CheckCircle className="w-5 h-5 text-green-600" />
-                              <span className="font-medium text-gray-900">{course.course_number} - {course.title}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={addToPersonalLibrary}
-                            onChange={(e) => setAddToPersonalLibrary(e.target.checked)}
-                            className="w-5 h-5 text-brand-maroon rounded focus:ring-brand-maroon"
-                          />
-                          <span className="font-medium text-gray-900">Personal Library</span>
-                        </label>
-                        <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={addToUSCLibrary}
-                            onChange={(e) => setAddToUSCLibrary(e.target.checked)}
-                            className="w-5 h-5 text-brand-maroon rounded focus:ring-brand-maroon"
-                          />
-                          <span className="font-medium text-gray-900">USC Library</span>
-                        </label>
+                    <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-5 text-green-950">
+                      <Lock className="mt-0.5 h-6 w-6 shrink-0" />
+                      <div>
+                        <h4 className="font-semibold">Saved to My Private Avatar Lectures</h4>
+                        <p className="mt-1 text-sm">Only your account can open the generated files. This lecture is not published to the course.</p>
                       </div>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex">
                       <button
                         onClick={handlePublishContent}
                         className="flex-1 bg-brand-maroon hover:bg-brand-maroon-hover text-white font-bold py-4 px-8 rounded-lg transition-colors flex items-center justify-center gap-2"
                       >
-                        <CheckCircle className="w-5 h-5" />
-                        Publish Content
-                      </button>
-                      <button
-                        onClick={() => toast.info('Download functionality coming soon')}
-                        className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-4 px-8 rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        <Download className="w-5 h-5" />
-                        Download
-                      </button>
-                      <button
-                        onClick={() => toast.info('Preview coming soon')}
-                        className="bg-brand-yellow hover:bg-brand-yellow-hover text-black font-bold py-4 px-8 rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        <Eye className="w-5 h-5" />
-                        Preview
+                        <CheckCircle className="h-5 w-5" />
+                        View My Private Lecture
                       </button>
                     </div>
 
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <p className="text-sm text-blue-900 flex items-center gap-2">
                         <Info className="w-4 h-4" />
-                        Your content will be published to the selected locations and will be available immediately.
+                        Access is provided with short-lived secure links after your identity is verified.
                       </p>
                     </div>
                   </div>

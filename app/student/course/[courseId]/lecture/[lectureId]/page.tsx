@@ -6,6 +6,7 @@ import StudentLayout from '@/components/StudentLayout';
 import { supabase, Profile } from '@/lib/supabase';
 import { hasProfileRole } from '@/lib/profileRoles';
 import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
+import { getStudentCourseEnrollment } from '@/lib/studentEnrollment';
 import {
   ArrowLeft,
   MessageSquare,
@@ -99,12 +100,7 @@ export default function StudentLectureViewer() {
 
     setProfile(profileData);
 
-    const { data: enrollmentCheck } = await supabase
-      .from('course_students')
-      .select('course_id')
-      .eq('email', user.email!)
-      .eq('course_id', courseId)
-      .maybeSingle();
+    const enrollmentCheck = await getStudentCourseEnrollment(user.id, user.email, courseId);
 
     if (!enrollmentCheck) {
       router.push('/student/dashboard');

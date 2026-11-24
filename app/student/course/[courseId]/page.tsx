@@ -10,6 +10,7 @@ import StudentPerformanceSummary from '@/components/StudentPerformanceSummary';
 import { getBackendBase } from '@/lib/backend';
 import { supabase, Profile } from '@/lib/supabase';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { getStudentCourseEnrollment } from '@/lib/studentEnrollment';
 import {
   getAssignmentSystemMissingMessage,
   isAssignmentSystemMissingError,
@@ -18,6 +19,10 @@ import {
   getStudentAssignmentCardStatus,
   StudentCourseAssignment,
 } from '@/lib/assignments';
+import {
+  listStudentPrivateQuizzes,
+  StudentPrivateQuizSummary,
+} from '@/lib/studentQuizApi';
 import { BookOpen, MessageSquare, Upload, FileText, Trash2, Send, Video, SquareCheck as CheckSquare, FileCheck, ClipboardList, ChartBar as BarChart3, Clock, Calendar, Eye, Lock, Plus } from 'lucide-react';
 
 const backendBase = getBackendBase();
@@ -126,6 +131,8 @@ export default function StudentCourse() {
   const [inClassQuizzes, setInClassQuizzes] = useState<InClassQuiz[]>([]);
   const [onlineQuizzes, setOnlineQuizzes] = useState<OnlineQuizSummary[]>([]);
   const [onlineQuizError, setOnlineQuizError] = useState<string | null>(null);
+  const [privateQuizzes, setPrivateQuizzes] = useState<StudentPrivateQuizSummary[]>([]);
+  const [privateQuizError, setPrivateQuizError] = useState<string | null>(null);
   const [studentAssignments, setStudentAssignments] = useState<StudentCourseAssignment[]>([]);
   const [assignmentSystemMissing, setAssignmentSystemMissing] = useState(false);
   const [quizView, setQuizView] = useState<'in-class' | 'online'>('in-class');
@@ -207,12 +214,7 @@ export default function StudentCourse() {
   };
 
   const loadCourseData = async (email: string, userId: string) => {
-    const { data: enrollment } = await supabase
-      .from('course_students')
-      .select('course_id')
-      .eq('email', email)
-      .eq('course_id', courseId)
-      .maybeSingle();
+    const enrollment = await getStudentCourseEnrollment(userId, email, courseId);
 
     if (!enrollment) {
       router.push('/student/dashboard');
@@ -317,6 +319,7 @@ export default function StudentCourse() {
     await Promise.all([
       loadInClassQuizzes(userId),
       loadOnlineQuizzes(userId),
+      loadPrivateQuizzes(),
       loadStudentAssignments(),
     ]);
 
@@ -543,20 +546,41 @@ export default function StudentCourse() {
 
     try {
       setOnlineQuizError(null);
-      const response = await fetch(
-        `${backendBase}/api/student/quiz/online?courseId=${courseId}&studentId=${userId}`,
-      );
-
-      if (!response.ok) {
-        throw new Error(await response.text());
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(
+          `${backendBase}/api/student/quiz/online?courseId=${courseId}&studentId=${userId}`,
+          { cache: 'no-store' },
+        );
+        if (response.ok || response.status < 500 || attempt === 1) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 300));
       }
-
-      const payload = await response.json();
-      setOnlineQuizzes((payload.quizzes || []) as OnlineQuizSummary[]);
+      if (!response) throw new Error('Unable to contact the online quiz service.');
+      const payload = await response.json().catch(() => null) as {
+        quizzes?: OnlineQuizSummary[];
+        detail?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(payload?.detail || `Unable to load online quizzes (${response.status}).`);
+      }
+      setOnlineQuizzes(payload?.quizzes || []);
     } catch (error) {
       console.error('Error loading online quizzes:', error);
       setOnlineQuizError(error instanceof Error ? error.message : 'Unable to load online quizzes.');
       setOnlineQuizzes([]);
+    }
+  };
+
+  const loadPrivateQuizzes = async () => {
+    try {
+      setPrivateQuizError(null);
+      setPrivateQuizzes(await listStudentPrivateQuizzes(100, courseId));
+    } catch (error) {
+      console.error('Error loading private quizzes:', error);
+      setPrivateQuizError(
+        error instanceof Error ? error.message : 'Unable to load your private quizzes.',
+      );
+      setPrivateQuizzes([]);
     }
   };
 
@@ -932,8 +956,75 @@ export default function StudentCourse() {
 
         {activeTab === 'quiz' && (
           <div>
+            <section className="mb-10 rounded-2xl border border-blue-200 bg-blue-50/50 p-6">
+              <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-bold text-foreground">My Private Quizzes</h2>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                      <Lock className="h-3.5 w-3.5" />Only you
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Personal practice quizzes you created for this course. They are not visible to your instructor or classmates.
+                  </p>
+                </div>
+                <button
+                  onClick={() => router.push(`/student/test-knowledge?courseId=${courseId}`)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-maroon px-4 py-2 font-semibold text-white transition-colors hover:bg-brand-maroon-hover"
+                >
+                  <Plus className="h-4 w-4" />Create Private Quiz
+                </button>
+              </div>
+
+              {privateQuizError && (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {privateQuizError}
+                </div>
+              )}
+
+              {privateQuizzes.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {privateQuizzes.map((quiz) => (
+                    <article key={quiz.id} className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-lg font-semibold text-foreground">{quiz.quizName}</h3>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {quiz.mcqCount} MCQ, {quiz.shortAnswerCount} Short
+                          </p>
+                        </div>
+                        <Lock className="h-5 w-5 flex-none text-blue-700" aria-label="Private" />
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+                        <span>{quiz.questionCount} Questions</span>
+                        <span>{quiz.attemptCount} Attempt{quiz.attemptCount === 1 ? '' : 's'}</span>
+                        <span>{quiz.lastScorePercent === null ? 'Not attempted' : `Last score: ${quiz.lastScorePercent}%`}</span>
+                        <span>{formatTimeAgo(quiz.createdAt)}</span>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/student/test-knowledge?quizId=${quiz.id}`)}
+                        className="mt-5 w-full rounded-lg bg-brand-maroon px-4 py-2.5 font-semibold text-white transition-colors hover:bg-brand-maroon-hover"
+                      >
+                        {quiz.attemptCount > 0 ? 'Open / Retry Quiz' : 'Open Quiz'}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : !privateQuizError ? (
+                <div className="rounded-xl border border-dashed border-blue-300 bg-white p-8 text-center">
+                  <Lock className="mx-auto h-10 w-10 text-blue-300" />
+                  <p className="mt-3 font-medium text-foreground">No private quizzes for this course yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Create one from course materials, your files, or pasted text.</p>
+                </div>
+              ) : null}
+            </section>
+
             <div className="flex items-center justify-between gap-4 mb-6">
-              <h2 className="text-xl font-bold text-foreground">Available Quizzes</h2>
+              <div>
+                <h2 className="text-xl font-bold text-foreground">Assigned Quizzes</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Quizzes published to this course by your instructor.</p>
+              </div>
               <div className="inline-flex rounded-lg border border-border p-1 bg-card">
                 <button
                   onClick={() => setQuizView('in-class')}
@@ -1034,8 +1125,15 @@ export default function StudentCourse() {
             {quizView === 'online' && (
               <>
                 {onlineQuizError && (
-                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {onlineQuizError}
+                  <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+                    <span>{onlineQuizError}</span>
+                    <button
+                      type="button"
+                      onClick={() => profile && loadOnlineQuizzes(profile.id)}
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-900 hover:bg-amber-100"
+                    >
+                      Retry
+                    </button>
                   </div>
                 )}
                 {onlineQuizzes.length > 0 ? (

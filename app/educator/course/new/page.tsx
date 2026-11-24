@@ -330,7 +330,7 @@ export default function CreateCourse() {
         const studentPayload = students.map(student => ({
           first_name: student.firstName.trim(),
           last_name: student.lastName.trim(),
-          email: student.email.trim(),
+          email: student.email.trim().toLowerCase(),
         }));
 
         const seenEmails = new Set<string>();

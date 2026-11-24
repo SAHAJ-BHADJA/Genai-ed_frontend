@@ -397,7 +397,7 @@ export default function EditCourse() {
       const studentPayload = students.map(student => ({
         first_name: safeText(student.firstName).trim(),
         last_name: safeText(student.lastName).trim(),
-        email: safeText(student.email).trim(),
+        email: safeText(student.email).trim().toLowerCase(),
       }));
 
       const seenEmails = new Set<string>();

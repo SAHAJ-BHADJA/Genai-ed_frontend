@@ -10,6 +10,7 @@ import { getBackendBase } from '@/lib/backend';
 import { validateFileSize } from '@/lib/fileUpload';
 import { hasProfileRole } from '@/lib/profileRoles';
 import { AvatarName, AvatarVoiceMap } from '@/lib/avatarVoiceMap';
+import { listStudentCourseEnrollments } from '@/lib/studentEnrollment';
 
 type MaterialWithType = {
   url: string;
@@ -205,10 +206,7 @@ export default function CreateLecture() {
 
       setProfile(profileData);
 
-      const { data: enrollmentsData } = await supabase
-        .from('course_students')
-        .select('course_id')
-        .eq('email', user.email!);
+      const enrollmentsData = await listStudentCourseEnrollments(user.id, user.email);
 
       if (enrollmentsData && enrollmentsData.length > 0) {
         const courseIds = enrollmentsData.map(e => e.course_id);

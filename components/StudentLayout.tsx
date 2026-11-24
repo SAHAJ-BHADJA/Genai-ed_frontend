@@ -7,6 +7,7 @@ import { supabase, Profile } from '@/lib/supabase';
 import CollapsibleSidebar, { NavItem, NavSection } from './CollapsibleSidebar';
 import ProfileAccountMenu from './ProfileAccountMenu';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { listStudentCourseEnrollments } from '@/lib/studentEnrollment';
 
 interface Course {
   id: string;
@@ -34,10 +35,7 @@ export default function StudentLayout({ children, profile }: StudentLayoutProps)
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: enrolledCourses } = await supabase
-      .from('course_students')
-      .select('course_id')
-      .eq('email', user.email);
+    const enrolledCourses = await listStudentCourseEnrollments(user.id, user.email);
 
     if (enrolledCourses && enrolledCourses.length > 0) {
       const courseIds = enrolledCourses.map(ec => ec.course_id);

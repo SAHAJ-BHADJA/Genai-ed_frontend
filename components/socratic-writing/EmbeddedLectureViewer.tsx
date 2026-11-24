@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Profile, supabase } from '@/lib/supabase';
 import { hasProfileRole } from '@/lib/profileRoles';
+import { getStudentCourseEnrollment } from '@/lib/studentEnrollment';
 import { fetchLectureArtifacts } from '@/lib/lectureArtifacts';
 import { Clock, Download, FileText, Loader2, Music, Presentation, User, Video } from 'lucide-react';
 
@@ -142,12 +143,7 @@ export default function EmbeddedLectureViewer({
       setProfile(profileData);
 
       if (!isEducatorPreview) {
-        const { data: enrollmentCheck } = await supabase
-          .from('course_students')
-          .select('course_id')
-          .eq('email', user.email!)
-          .eq('course_id', courseId)
-          .maybeSingle();
+        const enrollmentCheck = await getStudentCourseEnrollment(user.id, user.email, courseId);
 
         if (!enrollmentCheck) {
           setError('You are not enrolled in this course.');
